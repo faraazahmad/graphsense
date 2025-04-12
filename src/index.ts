@@ -9,21 +9,6 @@ interface ImportData {
     source: string
 }
 
-const REPO_PATH = `${resolve('.')}/rs-admin-api`;
-// function print(): void {
-//     const fileList = globSync(`${REPO_PATH}/**/**/*.js`)
-//
-//     let i = 0;
-//     for (const file of fileList) {
-//         parseFile(file);
-//         console.log("\n\n");
-//         i += 1;
-//         if (i == 10) { return; }
-//     }
-// }
-
-const FACILITY_CONTROLLER = `${resolve('.')}/rs-admin-api/src/controllers/facilityAccount.controller.js`;
-
 function parseFile(path: string, results: ImportData[]): ImportData[] {
     const content = readFileSync(path, 'utf-8');
     const sourceFile = createSourceFile(
@@ -33,13 +18,19 @@ function parseFile(path: string, results: ImportData[]): ImportData[] {
         true
     );
 
-    return traverse(sourceFile, 0, results);
+    forEachChild(sourceFile, (child) => {
+        const result = traverse(path, child);
+        results = [...results, ...result];
+    })
+
+    return results;
 }
 
 // let results: any[] = [];
-function traverse(node: Node, level: number = 0, results: ImportData[]): ImportData[] {
+function traverse(filePath: string, node: Node): ImportData[] {
     if (node.getChildCount() === 0) { return []; }
 
+    let result: ImportData[] = [];
     if (node.kind === SyntaxKind.ImportDeclaration) {
         const importDeclaration = node as ImportDeclaration;
         const importData = {
@@ -52,9 +43,11 @@ function traverse(node: Node, level: number = 0, results: ImportData[]): ImportD
                 let path;
                 const text = child.getText();
                 if (text.includes('./')) {
-                    let rawPath = `${dirname(FACILITY_CONTROLLER)}/${text.slice(1, text.length - 1)}`;
-                    if (rawPath.includes('./') && !rawPath.endsWith('.js')) { rawPath += '.js'; }
+                    // console.log(text)
+                    let rawPath = `${dirname(filePath)}/${text.slice(1, text.length - 1)}`;
+                    if (rawPath.includes('./') && !(rawPath.endsWith('.js') || rawPath.endsWith('.json'))) { rawPath += '.js'; }
                     path = resolve(rawPath);
+                    // console.log(path)
                 } else {
                     path = text.slice(1, text.length - 1);
                 }
@@ -72,26 +65,15 @@ function traverse(node: Node, level: number = 0, results: ImportData[]): ImportD
 
                 // Access each element in NamedImports
                 namedImports.elements.forEach(element => {
-                    results.push({ clause: element.name.text, source: importData.source });
+                    result.push({ clause: element.name.text, source: importData.source });
                 });
             }
         } else if (importDeclaration.importClause?.name) {
             importData.clause = importDeclaration.importClause.name.getText();
-            results.push(importData);
+            result.push(importData);
         }
-        return results;
     }
-
-    forEachChild(node, (child) => {
-        results = traverse(child, level + 1, results)
-        console.log(results)
-        return;
-        // results = [
-        //     ...results,
-        //     ...childResult
-        // ];
-    });
-    return results;
+    return result;
 }
 
 // print();
@@ -104,15 +86,16 @@ function traverse(node: Node, level: number = 0, results: ImportData[]): ImportD
 //     .catch(err => console.error(err));
 
 function registerFile(path: string) {
-    const results = parseFile(path, []);
-    console.log(results.length);
-    return;
+    let results: ImportData[] = [];
+    if (!(path[0] === '/')) { return results; }
+
+    results = parseFile(path, []);
 
     executeQuery(`
       MERGE (file:File {path: $path})
       `,
-        { path: FACILITY_CONTROLLER })
-        .then(result => console.log(result.records))
+        { path: path })
+        // .then(result => console.log(result.records))
         .catch(err => console.error(err));
 
     for (const result of results) {
@@ -120,17 +103,22 @@ function registerFile(path: string) {
           MERGE (file: File {path: $path})
       `,
             { path: result.source })
-            .then(result => console.log(result.records))
+            // .then(result => console.log(result.records))
             .catch(err => console.error(err));
 
         executeQuery(`
          match (file1:File { path: $source }), (file2:File { path: $path })
          merge (file1)-[:IMPORTS_FROM]->(file2)
       `,
-            { source: FACILITY_CONTROLLER, path: result.source })
-            .then(result => console.log(result.records))
+            { source: path, path: result.source })
+            // .then(result => console.log(result.records))
             .catch(err => console.error(err));
+
+        // registerFile(result.source);
     }
+
+    console.log(`Completed parsing file: ${path}`)
+    return results;
 }
 // executeQuery(`
 //   CREATE (a:Person {name: $name})
@@ -139,4 +127,18 @@ function registerFile(path: string) {
 //   `,
 //   {});
 //
-registerFile(FACILITY_CONTROLLER);
+const REPO_PATH = `${resolve('.')}/rs-admin-api`;
+const FACILITY_CONTROLLER = `${resolve('.')}/rs-admin-api/src/controllers/facilityAccount.controller.js`;
+const fileList = globSync(`${REPO_PATH}/**/**/*.js`)
+
+for (const file of fileList) {
+    const results = registerFile(file);
+    for (const result of results) {
+        try {
+            registerFile(result.source);
+        } catch (err) {
+            console.error(err);
+            break;
+        }
+    }
+}

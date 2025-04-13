@@ -1,7 +1,6 @@
 import { createSourceFile, forEachChild, ImportDeclaration, isNamedImports, NamedImports, Node, ScriptTarget, SyntaxKind } from 'typescript';
 import { resolve, dirname } from 'node:path';
 import { globSync, readFileSync } from 'node:fs';
-import { debug } from 'node:console';
 import { executeQuery } from './db';
 
 interface ImportData {
@@ -26,7 +25,6 @@ function parseFile(path: string, results: ImportData[]): ImportData[] {
     return results;
 }
 
-// let results: any[] = [];
 function traverse(filePath: string, node: Node): ImportData[] {
     if (node.getChildCount() === 0) { return []; }
 
@@ -43,11 +41,9 @@ function traverse(filePath: string, node: Node): ImportData[] {
                 let path;
                 const text = child.getText();
                 if (text.includes('./')) {
-                    // console.log(text)
                     let rawPath = `${dirname(filePath)}/${text.slice(1, text.length - 1)}`;
                     if (rawPath.includes('./') && !(rawPath.endsWith('.js') || rawPath.endsWith('.json'))) { rawPath += '.js'; }
                     path = resolve(rawPath);
-                    // console.log(path)
                 } else {
                     path = text.slice(1, text.length - 1);
                 }
@@ -76,15 +72,6 @@ function traverse(filePath: string, node: Node): ImportData[] {
     return result;
 }
 
-// print();
-// executeQuery(`
-//     CREATE CONSTRAINT unique_file_path
-//     FOR (file:File)
-//     REQUIRE file.path IS UNIQUE
-// `, {})
-//     .then(result => console.log(result.records))
-//     .catch(err => console.error(err));
-
 function registerFile(path: string) {
     let results: ImportData[] = [];
     if (!(path[0] === '/')) { return results; }
@@ -95,7 +82,6 @@ function registerFile(path: string) {
       MERGE (file:File {path: $path})
       `,
         { path: path })
-        // .then(result => console.log(result.records))
         .catch(err => console.error(err));
 
     for (const result of results) {
@@ -103,7 +89,6 @@ function registerFile(path: string) {
           MERGE (file: File {path: $path})
       `,
             { path: result.source })
-            // .then(result => console.log(result.records))
             .catch(err => console.error(err));
 
         executeQuery(`
@@ -111,24 +96,14 @@ function registerFile(path: string) {
          merge (file1)-[:IMPORTS_FROM]->(file2)
       `,
             { source: path, path: result.source })
-            // .then(result => console.log(result.records))
             .catch(err => console.error(err));
-
-        // registerFile(result.source);
     }
 
     console.log(`Completed parsing file: ${path}`)
     return results;
 }
-// executeQuery(`
-//   CREATE (a:Person {name: $name})
-//   CREATE (b:Person {friend: $name})
-//   CREATE (a)-[:KNOWS]->(b)
-//   `,
-//   {});
-//
+
 const REPO_PATH = `${resolve('.')}/rs-admin-api`;
-const FACILITY_CONTROLLER = `${resolve('.')}/rs-admin-api/src/controllers/facilityAccount.controller.js`;
 const fileList = globSync(`${REPO_PATH}/**/**/*.js`)
 
 for (const file of fileList) {

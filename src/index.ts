@@ -4,6 +4,8 @@ import { globSync, readFileSync } from 'node:fs';
 import { executeQuery } from './db';
 import { ollama } from 'ollama-ai-provider';
 import { Client } from 'pg';
+import { argv } from 'node:process';
+import { generateText } from 'ai';
 
 interface ImportData {
     clause: string
@@ -104,6 +106,12 @@ function traverse(filePath: string, node: Node): ImportData[] {
 async function parseFunctionDeclaration(node: FunctionDeclaration) {
     // Generate function embeddings
     const model = ollama.embedding(embeddingModel.modelId);
+    const deepseek = ollama('deepseek-r1:1.5b');
+    const {text} = await generateText({
+        model: deepseek,
+        prompt: `Given the following function body, generate a summary for it: \`\`\`${node.getText()}\`\`\``
+    });
+    const summary = text.replace(new RegExp("<think>.*</think>"), "");
 
     let fileId;
     executeQuery(`
@@ -112,15 +120,31 @@ async function parseFunctionDeclaration(node: FunctionDeclaration) {
         { path: node.getSourceFile().fileName, name: node.name?.escapedText })
         .then(async (result) => {
             fileId = result.records.map(rec => rec.get('id'));
+            try {
+                const fxn = await pgClient.query(
+                    `select id from functions where id = $1 limit 1`,
+                    [fileId[0]]
+                );
+                if (fxn.rows.length) { return; }
+            } catch (err) {
+                console.error(err);
+                return;
+            }
             const embedResult = await model.doEmbed({
-                values: [node.body!.getText()]
+                values: [summary]
             });
-            console.log(embedResult.embeddings[0])
             try {
                 await pgClient.query(
-                    'insert into functions (id, name, embedding) values ($1, $2, $3)',
+                    `
+INSERT INTO functions (id, name, embedding)
+VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    embedding = EXCLUDED.embedding;
+                    `,
                     [fileId[0], node.name?.escapedText, JSON.stringify(embedResult.embeddings[0])]
                 );
+                console.log(`Processed function: ${node.name?.escapedText}`)
             } catch (err) {
                 console.error(err);
             }

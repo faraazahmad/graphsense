@@ -4,8 +4,12 @@ import { globSync, readFileSync } from 'node:fs';
 import { executeQuery } from './db';
 import { ollama } from 'ollama-ai-provider';
 import { Client } from 'pg';
-import { argv } from 'node:process';
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import 'dotenv/config';
 import { generateText } from 'ai';
+
+let parseIndex = 0;
+const functionParseQueue: Array<any> = [];
 
 interface ImportData {
     clause: string
@@ -48,13 +52,13 @@ function parseFile(path: string, results: ImportData[]): ImportData[] {
 
     forEachChild(sourceFile, (child) => {
         const result = traverse(path, child);
-        results = [...results, ...result];
+        if (result) { results = [...results, ...result]; }
     })
 
     return results;
 }
 
-function traverse(filePath: string, node: Node): ImportData[] {
+function traverse(filePath: string, node: Node): void | ImportData[] {
     if (node.getChildCount() === 0) { return []; }
 
     let result: ImportData[] = [];
@@ -98,17 +102,42 @@ function traverse(filePath: string, node: Node): ImportData[] {
         //     result.push(importData);
         // }
     } else if (node.kind === SyntaxKind.FunctionDeclaration) {
-        parseFunctionDeclaration(node as FunctionDeclaration)
+        let skipFunction = false;
+
+        const functionNode = node as FunctionDeclaration;
+        executeQuery(
+            `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
+            { path: node.getSourceFile().fileName, name: functionNode.name?.escapedText }
+        )
+        .then(async result => {
+            const fileId = result.records.map(rec => rec.get('id'));
+            const fxn = await pgClient.query(
+                `select id from functions where id = $1 limit 1`,
+                [fileId[0]]
+            );
+            if (fxn.rows.length) { return; }
+
+            functionParseQueue.push(functionNode);
+            console.log(`[${new Date().toUTCString()}]: Pushed function ${functionNode.name?.escapedText} to processing queue`)
+        });
     }
     return result;
 }
 
 async function parseFunctionDeclaration(node: FunctionDeclaration) {
+    console.log(`[${new Date().toUTCString()}]: Started parsing ${node.name?.escapedText}()`);
+
+
+
     // Generate function embeddings
     const model = ollama.embedding(embeddingModel.modelId);
-    const deepseek = ollama('deepseek-r1:1.5b');
-    const {text} = await generateText({
-        model: deepseek,
+    const googleAI = createGoogleGenerativeAI({
+        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
+    });
+    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    // const deepseek = ollama('deepseek-r1:1.5b');
+    const { text } = await generateText({
+        model: gemini,
         prompt: `Given the following function body, generate a summary for it: \`\`\`${node.getText()}\`\`\``
     });
     const summary = text.replace(new RegExp("<think>.*</think>"), "");
@@ -126,8 +155,8 @@ async function parseFunctionDeclaration(node: FunctionDeclaration) {
                     [fileId[0]]
                 );
                 if (fxn.rows.length) { return; }
-            } catch (err) {
-                console.error(err);
+            } catch (err: any) {
+                console.error(err.message);
                 return;
             }
             const embedResult = await model.doEmbed({
@@ -144,7 +173,7 @@ SET name = EXCLUDED.name,
                     `,
                     [fileId[0], node.name?.escapedText, JSON.stringify(embedResult.embeddings[0])]
                 );
-                console.log(`Processed function: ${node.name?.escapedText}`)
+                console.log(`[${new Date().toUTCString()}]: Parsed function: ${node.name?.escapedText}`)
             } catch (err) {
                 console.error(err);
             }
@@ -196,3 +225,15 @@ for (const file of fileList) {
         }
     }
 }
+
+async function parseTopFunctionNode() {
+    const functionNode = functionParseQueue[parseIndex];
+    if (!functionNode) { return; }
+
+    await parseFunctionDeclaration(functionNode);
+    parseIndex += 1;
+}
+
+setInterval(() => {
+    parseTopFunctionNode();
+}, 5 * 1000);

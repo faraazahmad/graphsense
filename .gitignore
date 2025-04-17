@@ -1,3 +1,4 @@
 node_modules/
 rs-admin-api
 build/
+.env

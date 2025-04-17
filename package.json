@@ -1,6 +1,8 @@
 {
   "dependencies": {
+    "@ai-sdk/google": "^1.2.11",
     "ai": "^4.3.4",
+    "dotenv": "^16.5.0",
     "neo4j-driver": "^5.28.1",
     "ollama-ai-provider": "^1.2.0",
     "pg": "^8.14.1",

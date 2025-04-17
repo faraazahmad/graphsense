@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17 # Prebuilt image with pgvector support
+    container_name: pgvector-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+volumes:
+  pgdata:

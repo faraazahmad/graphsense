@@ -4,7 +4,7 @@ import { globSync, readFileSync } from 'node:fs';
 import { executeQuery } from './db';
 import { ollama } from 'ollama-ai-provider';
 import { Client } from 'pg';
-import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import 'dotenv/config';
 import { generateText } from 'ai';
 
@@ -102,32 +102,33 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
         //     result.push(importData);
         // }
     } else if (node.kind === SyntaxKind.FunctionDeclaration) {
-        let skipFunction = false;
 
         const functionNode = node as FunctionDeclaration;
-        executeQuery(
-            `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
-            { path: node.getSourceFile().fileName, name: functionNode.name?.escapedText }
-        )
-        .then(async result => {
-            const fileId = result.records.map(rec => rec.get('id'));
-            const fxn = await pgClient.query(
-                `select id from functions where id = $1 limit 1`,
-                [fileId[0]]
-            );
-            if (fxn.rows.length) { return; }
 
-            functionParseQueue.push(functionNode);
-            console.log(`[${new Date().toUTCString()}]: Pushed function ${functionNode.name?.escapedText} to processing queue`)
-        });
+        functionParseQueue.push(functionNode);
+        console.log(`[${new Date().toUTCString()}]: Pushed function ${functionNode.name?.escapedText} to processing queue`)
+
+        // executeQuery(
+        //     `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
+        //     { path: node.getSourceFile().fileName, name: functionNode.name?.escapedText }
+        // )
+        // .then(async result => {
+        //     const fileId = result.records.map(rec => rec.get('id'));
+        //     const fxn = await pgClient.query(
+        //         `select id from functions where id = $1 limit 1`,
+        //         [fileId[0]]
+        //     );
+        //     if (fxn.rows.length) { return; }
+        //
+        //     functionParseQueue.push(functionNode);
+        //     console.log(`[${new Date().toUTCString()}]: Pushed function ${functionNode.name?.escapedText} to processing queue`)
+        // });
     }
     return result;
 }
 
 async function parseFunctionDeclaration(node: FunctionDeclaration) {
-    console.log(`[${new Date().toUTCString()}]: Started parsing ${node.name?.escapedText}()`);
-
-
+    console.log(`[${new Date().toUTCString()}]: Started parsing ${node.name?.escapedText}`);
 
     // Generate function embeddings
     const model = ollama.embedding(embeddingModel.modelId);
@@ -138,7 +139,7 @@ async function parseFunctionDeclaration(node: FunctionDeclaration) {
     // const deepseek = ollama('deepseek-r1:1.5b');
     const { text } = await generateText({
         model: gemini,
-        prompt: `Given the following function body, generate a summary for it: \`\`\`${node.getText()}\`\`\``
+        prompt: `Given the following function body, generate a highly technical, information-dense summary for it: \`\`\`${node.getText()}\`\`\``
     });
     const summary = text.replace(new RegExp("<think>.*</think>"), "");
 
@@ -149,29 +150,29 @@ async function parseFunctionDeclaration(node: FunctionDeclaration) {
         { path: node.getSourceFile().fileName, name: node.name?.escapedText })
         .then(async (result) => {
             fileId = result.records.map(rec => rec.get('id'));
-            try {
-                const fxn = await pgClient.query(
-                    `select id from functions where id = $1 limit 1`,
-                    [fileId[0]]
-                );
-                if (fxn.rows.length) { return; }
-            } catch (err: any) {
-                console.error(err.message);
-                return;
-            }
-            const embedResult = await model.doEmbed({
-                values: [summary]
-            });
+            // try {
+            //     const fxn = await pgClient.query(
+            //         `select id from functions where id = $1 limit 1`,
+            //         [fileId[0]]
+            //     );
+            //     if (fxn.rows.length) { return; }
+            // } catch (err: any) {
+            //     console.error(err.message);
+            //     return;
+            // }
+            const embedResult = await model.doEmbed({ values: [summary] });
             try {
                 await pgClient.query(
                     `
-INSERT INTO functions (id, name, embedding)
-VALUES ($1, $2, $3)
+INSERT INTO functions (id, name, code, summary, embedding)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (id) DO UPDATE
 SET name = EXCLUDED.name,
-    embedding = EXCLUDED.embedding;
+code = EXCLUDED.code,
+summary = EXCLUDED.summary,
+embedding = EXCLUDED.embedding;
                     `,
-                    [fileId[0], node.name?.escapedText, JSON.stringify(embedResult.embeddings[0])]
+                    [fileId[0], node.name?.escapedText, node.getText(), summary, JSON.stringify(embedResult.embeddings[0])]
                 );
                 console.log(`[${new Date().toUTCString()}]: Parsed function: ${node.name?.escapedText}`)
             } catch (err) {

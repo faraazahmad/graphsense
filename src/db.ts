@@ -1,4 +1,5 @@
 import neo4j from 'neo4j-driver';
+import { Client } from 'pg';
 
 // Create a driver instance
 const driver = neo4j.driver(
@@ -30,3 +31,14 @@ export async function executeQuery(query: string, variables: Object) {
 
     return Promise.resolve(result);
 }
+
+export const pgClient = new Client({
+    user: 'user',
+    password: 'password',
+    database: 'postgres',
+    port: 5432
+});
+pgClient.connect()
+    .then(() => console.log('Connected to Postgres'))
+    .catch((err) => `Error connecting to Postgres: ${err}`);
+

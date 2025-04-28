@@ -3,9 +3,10 @@ import Fastify from 'fastify'
 import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
-import { Node, Relationship } from 'neo4j-driver';
-import { plan } from './planner';
+import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
+import { getQueryKeys, plan } from './planner';
 import 'dotenv/config';
+import { generateText } from 'ai';
 
 let fastify = Fastify({
     logger: true
@@ -17,6 +18,88 @@ fastify.register(fastifyCors, {
 setupDB();
 
 const embeddingModel = ollama('nomic-embed-text');
+
+
+interface GraphNode {
+  id: string;
+  labels: string[];
+  properties: any;
+}
+
+interface GraphRelationship {
+  id: string;
+  type: string;
+  source: string;
+  target: string;
+  properties: any;
+}
+
+/**
+ * Extracts unique nodes and relationships from Neo4j query records,
+ * filtering nodes by allowedLabels and relationships by allowedTypes.
+ * 
+ * @param records Neo4j query result records
+ * @param allowedNodeLabels List of node labels to include (if empty, includes all)
+ * @param allowedRelTypes List of relationship types to include (if empty, includes all)
+ * @returns Object with arrays of unique nodes and relationships
+ */
+function extractGraphElements(
+  records: Record[],
+  allowedNodeLabels: string[] = [],
+  allowedRelTypes: string[] = []
+): { nodes: GraphNode[]; relationships: GraphRelationship[] } {
+  const nodesMap = new Map<string, GraphNode>();
+  const relationshipsMap = new Map<string, GraphRelationship>();
+
+  for (const record of records) {
+    for (const key of record.keys) {
+      const value = record.get(key);
+
+      // Check if value is a Node
+      if (value instanceof neo4j.types.Node) {
+        // If allowedNodeLabels is empty or node has at least one allowed label
+        if (
+          allowedNodeLabels.length === 0 ||
+          value.labels.some(label => allowedNodeLabels.includes(label))
+        ) {
+          const id = value.elementId;
+          if (!nodesMap.has(id)) {
+            nodesMap.set(id, {
+              id,
+              labels: value.labels,
+              ...value.properties,
+            });
+          }
+        }
+      }
+
+      // Check if value is a Relationship
+      else if (value instanceof neo4j.types.Relationship) {
+        // If allowedRelTypes is empty or relationship type is allowed
+        if (
+          allowedRelTypes.length === 0 ||
+          allowedRelTypes.includes(value.type)
+        ) {
+          const id = value.elementId;
+          if (!relationshipsMap.has(id)) {
+            relationshipsMap.set(id, {
+              id,
+              type: value.type,
+              source: value.startNodeElementId,
+              target: value.endNodeElementId,
+              properties: value.properties,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    nodes: Array.from(nodesMap.values()),
+    relationships: Array.from(relationshipsMap.values()),
+  };
+}
 
 async function getSimilarFunctions(description: string) {
     const model = ollama.embedding(embeddingModel.modelId);
@@ -34,8 +117,33 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     const { queryText } = request.query;
 
     const query = decodeURI(queryText)
-    const result = await plan(query);
-    return reply.send(result);
+
+    let result;
+    let queryMD
+    let error: (Error | undefined);
+    let cypherQuery;
+    while(true) {
+        queryMD = await plan(query, error);
+        cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+        console.log(cypherQuery)
+        try {
+            result = await executeQuery(cypherQuery, {});
+        } catch (err) {
+            error = err as Error;
+            console.log(error.message)
+            continue;
+        }
+
+        break;
+    }
+
+    const { nodes, relationships } = extractGraphElements(
+        result.records,
+        ['File', 'Function'],
+        ['CALLS', 'IMPORTS_FROM']
+    );
+    console.log(relationships)
+    return reply.send({ nodes, relationships });
 })
 
 interface SearchQuery { description: string }
@@ -66,9 +174,7 @@ function getFunctionData(functionNode: Node): FunctionData {
     return { id: elementId, name: properties.name };
 }
 
-interface FunctionRouteParams {
-    id: string
-}
+interface FunctionRouteParams { id: string }
 fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, reply) => {
     const { id } = request.params;
     const result = await pgClient.query(`select id, name, code, summary from functions where id = $1 limit 1`, [id]);

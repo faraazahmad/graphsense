@@ -1,6 +1,6 @@
 {
     "scripts": {
-        "server": "node build/api.js"
+        "server": "node --watch-path=./build build/api.js"
     },
     "dependencies": {
         "@ai-sdk/google": "^1.2.11",

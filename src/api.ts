@@ -4,6 +4,8 @@ import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
 import { Node, Relationship } from 'neo4j-driver';
+import { plan } from './planner';
+import 'dotenv/config';
 
 let fastify = Fastify({
     logger: true
@@ -27,9 +29,16 @@ async function getSimilarFunctions(description: string) {
     return Promise.resolve(result.rows);
 }
 
-interface SearchQuery {
-    description: string
-}
+interface PlanQuery { queryText: string }
+fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request, reply) {
+    const { queryText } = request.query;
+
+    const query = decodeURI(queryText)
+    const result = await plan(query);
+    return reply.send(result);
+})
+
+interface SearchQuery { description: string }
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {
     const { description } = request.query;
 
@@ -62,7 +71,6 @@ interface FunctionRouteParams {
 }
 fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, reply) => {
     const { id } = request.params;
-
     const result = await pgClient.query(`select id, name, code, summary from functions where id = $1 limit 1`, [id]);
     const functionData = result.rows[0];
 
@@ -88,7 +96,6 @@ fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, r
     return reply.send({ info: functionData, nodes, links });
 })
 
-// Run the server!
 try {
     pgClient.connect()
         .then(() => console.log('Connected to Postgres'))

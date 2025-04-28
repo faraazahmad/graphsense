@@ -21,6 +21,7 @@ async function getSimilarFunctions(description: string) {
     const { embeddings } = await model.doEmbed({
         values: [description]
     });
+
     const result = await pgClient.query(`SELECT id, name FROM functions ORDER BY embedding <=> '${JSON.stringify(embeddings[0])}' LIMIT 7;`)
 
     return Promise.resolve(result.rows);

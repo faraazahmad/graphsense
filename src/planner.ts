@@ -26,54 +26,61 @@ export async function getQueryKeys(query: string) {
 }
 
 export async function plan(query: string, error?: Error) {
-    // const prompt = `
-    //     Here's some context for the neo4j database:
-    //
-    //     My neo4j DB has the following labels and relationships:
-    //     (File)-[:IMPORTS_FROM]->(File)
-    //     (Function)-[:CALLS]->(Function)
-    //
-    //     where:
-    //         Function has 2 keys: name and path
-    //         File has one key: path (same one used in Function)
-    //         IMPORTS_FROM has a value 'clause' which declares which function has been imported
-    //
-    //     Set variables for all nodes and relationships, return all variables.
-    //
-    //     ${error ? 'Avoid this error in the query: ' + error.message : ''}
-    //     Generate a Cypher query based on the following prompt: "${query}"
-    // `;
     const prompt = `
-    Here's some context for the Neo4j database:
+        You are an expert Cypher query generator for a Neo4j database with the following schema and requirements:
 
-    My Neo4j DB has the following labels and relationships:
-      (File)-[:IMPORTS_FROM]->(File)
-      (Function)-[:CALLS]->(Function)
+        Database schema:
+        - Nodes:
+          - (File) nodes have a 'path' property (string).
+          - (Function) nodes have 'name' (string) and 'path' (string) properties.
+        - Relationships:
+          - (File)-[:IMPORTS_FROM { clause: string }]->(File)
+            * The 'clause' property indicates the name of the function imported.
+          - (Function)-[:CALLS]->(Function)
 
-    Details:
-    - Function nodes have two properties: 'name' and 'path'.
-    - File nodes have one property: 'path' (the same key used in Function).
-    - The IMPORTS_FROM relationship has a property 'clause' indicating which function was imported.
+        Task:
+        - Given a natural language user query, generate a precise Cypher query that:
+          1. Matches nodes relevant to the query.
+          2. Finds and returns **all relationships between the matched nodes**.
+          3. Assigns variables to all matched nodes and relationships for clarity.
+          4. Avoids syntax errors and incomplete or partial results.
+          5. Returns the matched nodes and relationships explicitly.
 
-    Instructions:
-    - Match nodes based on the user query.
-    - For all matched nodes, find and include **all relationships between them**.
-    - Assign variables to **all nodes and relationships** involved.
-    - Return all these variables explicitly in the query.
-    - Ensure the query returns a complete subgraph of nodes and all their connecting relationships.
-    - Avoid errors or incomplete results.
+        Important notes:
+        - When matching functions, use both 'name' and 'path' if specified in the query.
+        - When matching files, use 'path' property.
+        - The IMPORTS_FROM relationship's 'clause' property should be used to filter by imported function name.
+        - Ensure that queries are optimized and do not miss any relevant relationships between matched nodes.
 
-    example: MATCH (caller:Function {name: "internalSyncCustomerWallet"})-[rel:CALLS]->(callee:Function) RETURN caller, callee, rel
+        Examples:
 
-    ${error ? 'Avoid this error in the query: ' + error.message : ''}
+        1. Query: "Which functions are called by internalSyncCustomerWallet?"
+        Cypher:
+        MATCH (caller:Function {name: "internalSyncCustomerWallet"})-[rel:CALLS]->(callee:Function)
+        RETURN caller, callee, rel
 
-    Generate a Cypher query based on the following prompt: "${query}"
-    `;
+        2. Query: "Which files import a function named round?"
+        Cypher:
+        MATCH (importer:File)-[rel:IMPORTS_FROM {clause: "round"}]->(importee:File)
+        RETURN importer, importee, rel
+
+        3. Query: "Show all functions and files related to the function 'processOrder' including their calls and imports."
+        Cypher:
+        MATCH (f:Function {name: "processOrder"})
+        OPTIONAL MATCH (f)-[callRel:CALLS]->(calledFunc:Function)
+        OPTIONAL MATCH (file:File {path: f.path})-[importRel:IMPORTS_FROM]->(importedFile:File)
+        RETURN f, callRel, calledFunc, file, importRel, importedFile
+
+        ${error ? 'Please avoid this error in the query: ' + error.message : ''}
+
+        Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
+        `
 
     const googleAI = createGoogleGenerativeAI({
         apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
     });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    // const gemini = googleAI('gemini-2.5-flash-preview-04-17');
     const { text } = await generateText({ model: gemini, prompt });
     return text;
 }

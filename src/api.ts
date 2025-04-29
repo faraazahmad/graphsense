@@ -122,10 +122,11 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     let queryMD
     let error: (Error | undefined);
     let cypherQuery;
+
     while(true) {
         queryMD = await plan(query, error);
+        console.log(queryMD);
         cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
-        console.log(cypherQuery)
         try {
             result = await executeQuery(cypherQuery, {});
         } catch (err) {
@@ -142,7 +143,6 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
         ['File', 'Function'],
         ['CALLS', 'IMPORTS_FROM']
     );
-    console.log(relationships)
     return reply.send({ nodes, relationships });
 })
 

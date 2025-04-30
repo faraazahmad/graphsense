@@ -1,5 +1,5 @@
+import { anthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { pgClient, executeQuery, setupDB } from './db';
 import { generateText } from 'ai';
 
 export async function getQueryKeys(query: string) {
@@ -17,11 +17,12 @@ export async function getQueryKeys(query: string) {
         Return query variables present in the query. categorize and return json.
     `;
 
-    const googleAI = createGoogleGenerativeAI({
-        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
-    });
-    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    const { text } = await generateText({ model: gemini, prompt });
+    // const googleAI = createGoogleGenerativeAI({
+    //     apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
+    // });
+    // const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    const claude = anthropic('claude-3-5-sonnet-latest');
+    const { text } = await generateText({ model: claude, prompt });
     return text;
 }
 
@@ -74,13 +75,15 @@ export async function plan(query: string, error?: Error) {
         ${error ? 'Please avoid this error in the query: ' + error.message : ''}
 
         Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
+
+        Return only the query code
         `
 
     const googleAI = createGoogleGenerativeAI({
         apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
     });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    // const gemini = googleAI('gemini-2.5-flash-preview-04-17');
+    // const claude = anthropic('claude-3-5-sonnet-latest');
     const { text } = await generateText({ model: gemini, prompt });
     return text;
 }

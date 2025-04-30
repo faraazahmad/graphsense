@@ -1,18 +1,20 @@
 // Import the framework and instantiate it
-import Fastify from 'fastify'
+import Fastify, { FastifyRequest } from 'fastify'
 import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { getQueryKeys, plan } from './planner';
 import 'dotenv/config';
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 
 let fastify = Fastify({
     logger: true
 });
 fastify.register(fastifyCors, {
-    origin: "*"
+    origin: "*",
+    methods: "*"
 });
 
 setupDB();
@@ -21,17 +23,17 @@ const embeddingModel = ollama('nomic-embed-text');
 
 
 interface GraphNode {
-  id: string;
-  labels: string[];
-  properties: any;
+    id: string;
+    labels: string[];
+    properties: any;
 }
 
 interface GraphRelationship {
-  id: string;
-  type: string;
-  source: string;
-  target: string;
-  properties: any;
+    id: string;
+    type: string;
+    source: string;
+    target: string;
+    properties: any;
 }
 
 /**
@@ -44,61 +46,61 @@ interface GraphRelationship {
  * @returns Object with arrays of unique nodes and relationships
  */
 function extractGraphElements(
-  records: Record[],
-  allowedNodeLabels: string[] = [],
-  allowedRelTypes: string[] = []
+    records: Record[],
+    allowedNodeLabels: string[] = [],
+    allowedRelTypes: string[] = []
 ): { nodes: GraphNode[]; relationships: GraphRelationship[] } {
-  const nodesMap = new Map<string, GraphNode>();
-  const relationshipsMap = new Map<string, GraphRelationship>();
+    const nodesMap = new Map<string, GraphNode>();
+    const relationshipsMap = new Map<string, GraphRelationship>();
 
-  for (const record of records) {
-    for (const key of record.keys) {
-      const value = record.get(key);
+    for (const record of records) {
+        for (const key of record.keys) {
+            const value = record.get(key);
 
-      // Check if value is a Node
-      if (value instanceof neo4j.types.Node) {
-        // If allowedNodeLabels is empty or node has at least one allowed label
-        if (
-          allowedNodeLabels.length === 0 ||
-          value.labels.some(label => allowedNodeLabels.includes(label))
-        ) {
-          const id = value.elementId;
-          if (!nodesMap.has(id)) {
-            nodesMap.set(id, {
-              id,
-              labels: value.labels,
-              ...value.properties,
-            });
-          }
+            // Check if value is a Node
+            if (value instanceof neo4j.types.Node) {
+                // If allowedNodeLabels is empty or node has at least one allowed label
+                if (
+                    allowedNodeLabels.length === 0 ||
+                    value.labels.some(label => allowedNodeLabels.includes(label))
+                ) {
+                    const id = value.elementId;
+                    if (!nodesMap.has(id)) {
+                        nodesMap.set(id, {
+                            id,
+                            labels: value.labels,
+                            ...value.properties,
+                        });
+                    }
+                }
+            }
+
+            // Check if value is a Relationship
+            else if (value instanceof neo4j.types.Relationship) {
+                // If allowedRelTypes is empty or relationship type is allowed
+                if (
+                    allowedRelTypes.length === 0 ||
+                    allowedRelTypes.includes(value.type)
+                ) {
+                    const id = value.elementId;
+                    if (!relationshipsMap.has(id)) {
+                        relationshipsMap.set(id, {
+                            id,
+                            type: value.type,
+                            source: value.startNodeElementId,
+                            target: value.endNodeElementId,
+                            properties: value.properties,
+                        });
+                    }
+                }
+            }
         }
-      }
-
-      // Check if value is a Relationship
-      else if (value instanceof neo4j.types.Relationship) {
-        // If allowedRelTypes is empty or relationship type is allowed
-        if (
-          allowedRelTypes.length === 0 ||
-          allowedRelTypes.includes(value.type)
-        ) {
-          const id = value.elementId;
-          if (!relationshipsMap.has(id)) {
-            relationshipsMap.set(id, {
-              id,
-              type: value.type,
-              source: value.startNodeElementId,
-              target: value.endNodeElementId,
-              properties: value.properties,
-            });
-          }
-        }
-      }
     }
-  }
 
-  return {
-    nodes: Array.from(nodesMap.values()),
-    relationships: Array.from(relationshipsMap.values()),
-  };
+    return {
+        nodes: Array.from(nodesMap.values()),
+        relationships: Array.from(relationshipsMap.values()),
+    };
 }
 
 async function getSimilarFunctions(description: string) {
@@ -112,6 +114,21 @@ async function getSimilarFunctions(description: string) {
     return Promise.resolve(result.rows);
 }
 
+interface QueryAnswerStreamData { prompt: string }
+fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: QueryAnswerStreamData}>, reply) {
+    const { prompt } = request.body;
+    const googleAI = createGoogleGenerativeAI({
+        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
+    });
+    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    const { textStream } = streamText({
+        model: gemini,
+        prompt,
+    });
+
+  return reply.header('Content-Type', 'application/octet-stream').send(textStream);
+});
+
 interface PlanQuery { queryText: string }
 fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request, reply) {
     const { queryText } = request.query;
@@ -122,6 +139,10 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     let queryMD
     let error: (Error | undefined);
     let cypherQuery;
+    // queryMD = await plan(query, error);
+    // cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+    // console.log(cypherQuery)
+    // result = await executeQuery(cypherQuery, {});
 
     while(true) {
         queryMD = await plan(query, error);
@@ -181,13 +202,13 @@ fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, r
     const functionData = result.rows[0];
 
     const functionCallsResult = await executeQuery(
-    `
+        `
         match
             (func1:Function)-[rel:CALLS]->(func2:Function)
         where elementId(func1) = $id or elementId(func2) = $id
         return func1, func2, rel
     `,
-    { id });
+        { id });
 
     const nodes: FunctionDataResult = {};
     functionCallsResult.records.forEach(rec => {

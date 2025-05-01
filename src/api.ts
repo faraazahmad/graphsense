@@ -4,7 +4,7 @@ import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
-import { getQueryKeys, plan } from './planner';
+import { getQueryKeys, makeQueryDecision, plan } from './planner';
 import 'dotenv/config';
 import { generateText, streamText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -145,8 +145,8 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     // result = await executeQuery(cypherQuery, {});
 
     while(true) {
+        makeQueryDecision(query);
         queryMD = await plan(query, error);
-        console.log(queryMD);
         cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
         try {
             result = await executeQuery(cypherQuery, {});

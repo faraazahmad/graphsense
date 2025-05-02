@@ -4,7 +4,7 @@ import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
-import { getQueryKeys, makeQueryDecision, plan } from './planner';
+import { makeQueryDecision, plan } from './planner';
 import 'dotenv/config';
 import { generateText, streamText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -18,9 +18,7 @@ fastify.register(fastifyCors, {
 });
 
 setupDB();
-
 const embeddingModel = ollama('nomic-embed-text');
-
 
 interface GraphNode {
     id: string;
@@ -127,6 +125,17 @@ fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: Qu
     });
 
   return reply.header('Content-Type', 'application/octet-stream').send(textStream);
+});
+
+interface PlanQuery { queryText: string }
+fastify.get<{ Querystring: PlanQuery }>('/decide', async function handler(request, reply) {
+    const { queryText } = request.query;
+
+    const query = decodeURI(queryText)
+    const decisionMd = await makeQueryDecision(query);
+    const decision = decisionMd.replace(/```/g, '').replace(/json/, '')
+
+    reply.send(decision);
 });
 
 interface PlanQuery { queryText: string }

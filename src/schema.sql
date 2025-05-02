@@ -5,5 +5,5 @@ CREATE TABLE if not exists functions (
     name VARCHAR(255) NOT NULL,
     code TEXT,
     summary TEXT,
-    embedding vector(768) -- Vector column for embeddings
+    embedding vector(1024) -- Vector column for embeddings
 );

@@ -42,7 +42,7 @@ export async function makeQueryDecision(query: string) {
 
     Prepare a simple reasoning to explain the decision to the user, they should not be made aware of the databases being used, there's no need to repeat the query.
 
-    Provide your decision and reason in a json response, like this: { reason: string, decision: string<'sql' | 'neo4j'>}. When the decision is sql, also give a one line description for me to use in the vector search, call that column summary. 
+    Provide your decision and reason in a json string response, like this: { reason: string, decision: string<'sql' | 'neo4j'>}. When the decision is sql, also give a one line description for me to use in the vector search, call that column summary. 
 
     Generate for this query: "${query}"
     `;
@@ -99,6 +99,16 @@ export async function plan(query: string, error?: Error) {
         OPTIONAL MATCH (file:File {path: f.path})-[importRel:IMPORTS_FROM]->(importedFile:File)
         RETURN f, callRel, calledFunc, file, importRel, importedFile
 
+        4. Query: "Get me all functions that call more than 3 functions"
+        Cypher:
+        MATCH (caller:Function)-[rel:CALLS]->(callee:Function)
+        WITH caller, collect(rel) AS rels, collect(callee) AS callees
+        WHERE size(callees) > 3
+        UNWIND rels AS r
+        WITH caller, r
+        MATCH (caller)-[r]->(callee)
+        RETURN caller, r, callee
+
         ${error ? 'Please avoid this error in the query: ' + error.message : ''}
 
         Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
@@ -110,7 +120,8 @@ export async function plan(query: string, error?: Error) {
         apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
     });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    // const claude = anthropic('claude-3-5-sonnet-latest');
+    const claude = anthropic('claude-3-5-sonnet-latest');
     const { text } = await generateText({ model: gemini, prompt });
+    console.log(text)
     return text;
 }

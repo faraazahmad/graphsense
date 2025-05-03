@@ -53,6 +53,37 @@ export async function makeQueryDecision(query: string) {
     return text;
 }
 
+export async function answer(query: string, nodes: any[], relationships: any[], error?: Error) {
+    const prompt = `
+        You are a neo4j and systems architecture expert, working with the following database:
+
+        Database schema:
+        - Nodes:
+          - (File) nodes have a 'path' property (string).
+          - (Function) nodes have 'name' (string) and 'path' (string) properties.
+        - Relationships:
+          - (File)-[:IMPORTS_FROM { clause: string }]->(File)
+            * The 'clause' property indicates the name of the function imported.
+          - (Function)-[:CALLS]->(Function)
+
+        Given a Natural language query and the result from the DB, answer the given query with confidence, so as to not invite
+        any doubts on your capabilities.
+
+        Nodes: ${nodes}
+        Relationships: ${relationships}
+        Query: ${query}
+    `;
+
+    const googleAI = createGoogleGenerativeAI({
+        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
+    });
+    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    const claude = anthropic('claude-3-5-sonnet-latest');
+    const { text } = await generateText({ model: gemini, prompt });
+    console.log(text)
+    return text;
+}
+
 export async function plan(query: string, error?: Error) {
     const prompt = `
         You are an expert Cypher query generator for a Neo4j database with the following schema and requirements:

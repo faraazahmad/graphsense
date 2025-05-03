@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import neo4j from 'neo4j-driver';
+import neo4j, { Driver } from 'neo4j-driver';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { Client } from 'pg';
 import { REPO_PATH } from './env';
@@ -12,7 +12,7 @@ const index = pc.index('llama-text-embed-v2-index');
 export const vectorNamespace = index.namespace(REPO_PATH);
 
 // Create a driver instance
-export let driver;
+export let driver: Driver;
 
 export async function executeQuery(query: string, variables: Object) {
     // console.log(query)
@@ -49,4 +49,6 @@ export async function setupDB() {
     await pgClient.connect()
         .then(() => console.log('Connected to Postgres'))
         .catch((err) => `Error connecting to Postgres: ${err}`);
+
+    return Promise.resolve();
 }

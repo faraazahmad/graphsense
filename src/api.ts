@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // Import the framework and instantiate it
 import Fastify, { FastifyRequest } from 'fastify'
 import { ollama } from 'ollama-ai-provider';
@@ -5,9 +6,10 @@ import fastifyCors from '@fastify/cors';
 import { executeQuery, pgClient, setupDB } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
-import 'dotenv/config';
-import { generateText, streamText } from 'ai';
+import { streamText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { SERVICE_PORT } from './env';
+import { anthropic } from '@ai-sdk/anthropic';
 
 let fastify = Fastify({
     logger: true
@@ -17,7 +19,6 @@ fastify.register(fastifyCors, {
     methods: "*"
 });
 
-setupDB();
 const embeddingModel = ollama('nomic-embed-text');
 
 interface GraphNode {
@@ -112,19 +113,37 @@ async function getSimilarFunctions(description: string) {
     return Promise.resolve(result.rows);
 }
 
-interface QueryAnswerStreamData { prompt: string }
+interface QueryAnswerStreamData { query: string, nodes: any[], relationships: any[] }
 fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: QueryAnswerStreamData}>, reply) {
-    const { prompt } = request.body;
-    const googleAI = createGoogleGenerativeAI({
-        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
-    });
-    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    const { textStream } = streamText({
-        model: gemini,
-        prompt,
-    });
+    const { query, nodes, relationships } = request.body;
+    console.log(query, nodes, relationships);
 
-  return reply.header('Content-Type', 'application/octet-stream').send(textStream);
+    const prompt = `
+        You are a neo4j and systems architecture expert, working with the following database:
+
+        Database schema:
+        - Nodes:
+          - (File) nodes have a 'path' property (string).
+          - (Function) nodes have 'name' (string) and 'path' (string) properties.
+        - Relationships:
+          - (File)-[:IMPORTS_FROM { clause: string }]->(File)
+            * The 'clause' property indicates the name of the function imported.
+          - (Function)-[:CALLS]->(Function)
+
+        The follwing search query was made by the user: ${query}
+
+        For the given DB, the answer is given in the follwing nodes and relationships:
+        Nodes: ${JSON.stringify(nodes)}
+        Relationships: ${JSON.stringify(relationships)}
+
+        Answer the user query in natural language using the given data.
+    `;
+    const claude = anthropic('claude-3-5-sonnet-latest');
+    const googleAI = createGoogleGenerativeAI({ apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'] });
+    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
+    const { textStream } = streamText({ model: claude, prompt });
+
+    return reply.header('Content-Type', 'application/octet-stream').send(textStream);
 });
 
 interface PlanQuery { queryText: string }
@@ -154,7 +173,7 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     // result = await executeQuery(cypherQuery, {});
 
     while(true) {
-        makeQueryDecision(query);
+        // makeQueryDecision(query);
         queryMD = await plan(query, error);
         cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
         try {
@@ -232,12 +251,11 @@ fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, r
     return reply.send({ info: functionData, nodes, links });
 })
 
-try {
-    pgClient.connect()
-        .then(() => console.log('Connected to Postgres'))
-        .catch((err) => `Error connecting to Postgres: ${err}`);
-    fastify.listen({ port: 3000 })
-} catch (err) {
+setupDB()
+.then(() => {
+    fastify.listen({ port: SERVICE_PORT });
+})
+.catch(err => {
     fastify.log.error(err)
-    process.exit(1)
-}
+    process.exit(1);
+})

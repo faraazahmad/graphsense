@@ -3,12 +3,11 @@ import { dirname, resolve } from 'node:path';
 import { globSync, readFileSync } from 'node:fs';
 import { executeQuery, pgClient, setupDB } from './db';
 import { parseFunctionDeclaration, processFunctionWithAI } from './parse';
-import { QueryResult, RecordShape } from 'neo4j-driver';
 import { REPO_PATH } from './env';
 
 interface FunctionParseDTO {
     node: FunctionDeclaration,
-    result: QueryResult<RecordShape>,
+    functionNodeId: string,
     reParse: boolean,
 }
 
@@ -141,8 +140,13 @@ async function parseTopFunctionNode() {
     const functionParseArg = functionParseQueue[parseIndex];
     if (!functionParseArg) { return; }
 
-    const { node, result, reParse } = functionParseArg;
-    await processFunctionWithAI(node, result, reParse);
+    const { node, functionNodeId, reParse } = functionParseArg;
+    try {
+        await processFunctionWithAI(node, functionNodeId, reParse);
+    } catch (err: any) {
+        console.error(err);
+        return;
+    }
     parseIndex += 1;
 }
 

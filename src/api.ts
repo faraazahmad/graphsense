@@ -3,13 +3,14 @@ import 'dotenv/config';
 import Fastify, { FastifyRequest } from 'fastify'
 import { ollama } from 'ollama-ai-provider';
 import fastifyCors from '@fastify/cors';
-import { executeQuery, pgClient, setupDB } from './db';
+import { executeQuery, pc, pgClient, setupDB, vectorNamespace } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
 import { streamText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { SERVICE_PORT } from './env';
 import { anthropic } from '@ai-sdk/anthropic';
+import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 
 let fastify = Fastify({
     logger: true
@@ -102,21 +103,9 @@ function extractGraphElements(
     };
 }
 
-async function getSimilarFunctions(description: string) {
-    const model = ollama.embedding(embeddingModel.modelId);
-    const { embeddings } = await model.doEmbed({
-        values: [description]
-    });
-
-    const result = await pgClient.query(`SELECT id, name FROM functions ORDER BY embedding <=> '${JSON.stringify(embeddings[0])}' LIMIT 7;`)
-
-    return Promise.resolve(result.rows);
-}
-
 interface QueryAnswerStreamData { query: string, nodes: any[], relationships: any[] }
-fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: QueryAnswerStreamData}>, reply) {
+fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: QueryAnswerStreamData }>, reply) {
     const { query, nodes, relationships } = request.body;
-    console.log(query, nodes, relationships);
 
     const prompt = `
         You are a neo4j and systems architecture expert, working with the following database:
@@ -141,9 +130,20 @@ fastify.put('/prompt', async function handler(request: FastifyRequest<{ Body: Qu
     const claude = anthropic('claude-3-5-sonnet-latest');
     const googleAI = createGoogleGenerativeAI({ apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'] });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    const { textStream } = streamText({ model: claude, prompt });
+    const { textStream } = streamText({ model: gemini, prompt });
 
     return reply.header('Content-Type', 'application/octet-stream').send(textStream);
+});
+
+interface VectorSearchQuery { text: string }
+fastify.get<{ Querystring: VectorSearchQuery }>('/vector', async function handler(request, reply) {
+    const { text } = request.query;
+
+    const query = decodeURI(text)
+    const decisionMd = await makeQueryDecision(query);
+    const decision = decisionMd.replace(/```/g, '').replace(/json/, '')
+
+    reply.send(decision);
 });
 
 interface PlanQuery { queryText: string }
@@ -157,35 +157,40 @@ fastify.get<{ Querystring: PlanQuery }>('/decide', async function handler(reques
     reply.send(decision);
 });
 
-interface PlanQuery { queryText: string }
+interface PlanQuery { userQuery: string, description: string, decision: string }
 fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request, reply) {
-    const { queryText } = request.query;
+    const { userQuery, description, decision } = request.query;
 
-    const query = decodeURI(queryText)
+    const query = decodeURI(userQuery)
 
     let result;
     let queryMD
     let error: (Error | undefined);
     let cypherQuery;
-    // queryMD = await plan(query, error);
-    // cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
-    // console.log(cypherQuery)
-    // result = await executeQuery(cypherQuery, {});
 
-    while(true) {
-        // makeQueryDecision(query);
-        queryMD = await plan(query, error);
-        cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
-        try {
-            result = await executeQuery(cypherQuery, {});
-        } catch (err) {
-            error = err as Error;
-            console.log(error.message)
-            continue;
-        }
-
-        break;
+    let functions: any[] = [];
+    if (decision === 'sql') {
+        functions = await getSimilarFunctions(description);
     }
+    queryMD = await plan(query, error, functions, description);
+    cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+    console.log(cypherQuery)
+    result = await executeQuery(cypherQuery, {});
+
+    // while (true) {
+    //     // makeQueryDecision(query);
+    //     queryMD = await plan(query, error);
+    //     cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+    //     try {
+    //         result = await executeQuery(cypherQuery, {});
+    //     } catch (err) {
+    //         error = err as Error;
+    //         console.log(error.message)
+    //         continue;
+    //     }
+    //
+    //     break;
+    // }
 
     const { nodes, relationships } = extractGraphElements(
         result.records,
@@ -194,6 +199,86 @@ fastify.get<{ Querystring: PlanQuery }>('/plan', async function handler(request,
     );
     return reply.send({ nodes, relationships });
 })
+
+interface SearchResult {
+    result: {
+        hits: Hit[];
+    },
+    usage: any
+}
+
+interface ChunkOutput {
+    _id: string;
+    text: string;
+}
+
+/**
+ * Get the unique hits from two search results and return them as single array of {'_id', 'chunk_text'} dicts.
+ */
+function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
+    // Deduplicate by _id
+    const hitsMap = new Map<string, Hit>();
+
+    // Combine hits from both results
+    [...h1.result.hits, ...h2.result.hits].forEach(hit => {
+        hitsMap.set(hit._id, hit);
+    });
+
+    // Convert map values to array
+    const deduped = Array.from(hitsMap.values());
+
+    // Sort by _score descending
+    const sortedHits = deduped.sort((a, b) => b._score - a._score);
+
+    // Transform to format for reranking
+    const result = sortedHits.map(hit => ({
+        _id: hit._id,
+        text: (hit.fields as any).text
+    }));
+
+    return result;
+}
+
+async function getSimilarFunctions(description: string) {
+    // const model = ollama.embedding(embeddingModel.modelId);
+    // const { embeddings } = await model.doEmbed({
+    //     values: [description]
+    // });
+    //
+    // const result = await pgClient.query(`SELECT id, name FROM functions ORDER BY embedding <=> '${JSON.stringify(embeddings[0])}' LIMIT 7;`)
+    //
+    // return Promise.resolve(result.rows);
+    const denseIndex = pc.index('graphsense-dense').namespace('svelte')
+    const sparseIndex = pc.index('graphsense-sparse').namespace('svelte')
+
+    let denseResults;
+    let sparseResults;
+    await Promise.all([
+        denseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
+        .then(res => denseResults = res),
+
+        sparseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
+        .then(res => sparseResults = res),
+    ])
+    // console.log(denseResults!.result.hits[0])
+    // console.log(sparseResults)
+
+    const mergedResults = mergeChunks(denseResults!, sparseResults!);
+    const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
+    const rankedIds = reRanked.data.map(row => row.document!._id);
+
+    const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
+    const functionsResult = await pgClient.query(`SELECT id, name FROM functions where id in (${ids});`);
+    const functionsMap: any = {};
+    for (const func of functionsResult.rows) { functionsMap[func.id] = func; }
+
+    const rankedFunctions = rankedIds.map(id => ({
+        id,
+        name: functionsMap[id]?.name
+    })).filter(func => func.name);
+    return Promise.resolve(rankedFunctions);
+}
+
 
 interface SearchQuery { description: string }
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {
@@ -252,10 +337,10 @@ fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, r
 })
 
 setupDB()
-.then(() => {
-    fastify.listen({ port: SERVICE_PORT });
-})
-.catch(err => {
-    fastify.log.error(err)
-    process.exit(1);
-})
+    .then(() => {
+        fastify.listen({ port: SERVICE_PORT });
+    })
+    .catch(err => {
+        fastify.log.error(err)
+        process.exit(1);
+    })

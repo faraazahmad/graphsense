@@ -20,7 +20,7 @@ export async function makeQueryDecision(query: string) {
       - name (varchar)
       - code (text)
       - summary (text)
-      - embedding (vector(768)) for semantic vector search
+      - embedding (vector(1024)) for semantic vector search
 
     Your task is: Given a user query about functions or code, decide whether to run a vector search on the Postgres 'functions' table or to query the Neo4j graph database.
 
@@ -40,16 +40,15 @@ export async function makeQueryDecision(query: string) {
 
     5. Always weigh the nature of the query: semantic similarity and unstructured text → Postgres vector search; structural, relational, or dependency navigation → Neo4j graph queries.
 
-    Prepare a simple reasoning to explain the decision to the user, they should not be made aware of the databases being used, there's no need to repeat the query.
+    Prepare a simple reasoning to explain the decision to the user, do not mention the databases being used, there's no need to repeat the query.
 
-    Provide your decision and reason in a json string response, like this: { reason: string, decision: string<'sql' | 'neo4j'>}. When the decision is sql, also give a one line description for me to use in the vector search, call that column summary. 
+    Provide your decision and one-liner reason in a json string response, like this: { reason: string, decision: string<'sql' | 'neo4j'>, summary: string }. When the decision is sql, also give me words that need to be searched. Provide it under the 'summary' key, this will be used to perform a vector search.
 
     Generate for this query: "${query}"
     `;
     const claude = anthropic('claude-3-5-sonnet-latest');
     const gemini = google('gemini-2.0-flash-lite-preview-02-05');
-    const { text } = await generateText({ model: gemini, prompt });
-    console.log(text);
+    const { text } = await generateText({ model: claude, prompt });
     return text;
 }
 
@@ -84,7 +83,7 @@ export async function answer(query: string, nodes: any[], relationships: any[], 
     return text;
 }
 
-export async function plan(query: string, error?: Error) {
+export async function plan(query: string, error?: Error, functions: any[], description: string) {
     const prompt = `
         You are an expert Cypher query generator for a Neo4j database with the following schema and requirements:
 
@@ -142,6 +141,9 @@ export async function plan(query: string, error?: Error) {
 
         ${error ? 'Please avoid this error in the query: ' + error.message : ''}
 
+        ${functions.length && description ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
+        the Cypher query uses these functions as the starting point.` : ''}
+
         Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
 
         Return only the query code
@@ -152,7 +154,6 @@ export async function plan(query: string, error?: Error) {
     });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
     const claude = anthropic('claude-3-5-sonnet-latest');
-    const { text } = await generateText({ model: gemini, prompt });
-    console.log(text)
+    const { text } = await generateText({ model: claude, prompt });
     return text;
 }

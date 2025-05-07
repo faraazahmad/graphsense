@@ -1,12 +1,10 @@
-import { ImportDeclaration, NamedImports, isCallExpression, isIdentifier, isPropertyAccessExpression, createSourceFile, forEachChild, FunctionDeclaration, Node, ScriptTarget, SyntaxKind } from 'typescript';
+import { isCallExpression, isIdentifier, forEachChild, FunctionDeclaration, Node } from 'typescript';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { ollama } from 'ollama-ai-provider';
 import { generateText } from 'ai';
-import { executeQuery, pgClient } from './db';
-import { RecordShape, QueryResult } from 'neo4j-driver';
-import { functionParseQueue } from '.';
-
-const embeddingModel = ollama('nomic-embed-text');
+import { executeQuery, pc, pgClient } from './db';
+import { cleanPath, functionParseQueue } from '.';
+import { DenseEmbedding, SparseEmbedding } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/inference';
+import { REPO_PATH } from './env';
 
 export async function parseFunctionDeclaration(node: FunctionDeclaration, reParse = false) {
     const callSet = new Set<string>();
@@ -20,63 +18,67 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration, rePars
         forEachChild(node, (child: Node) => extractFunctionCalls(rootFunction, child));
     }
 
-    executeQuery(`
+    const result = await executeQuery(`
           MERGE (function:Function {name: $name, path: $path}) return elementId(function) as id
           `,
-        { path: node.getSourceFile().fileName, name: node.name?.escapedText })
-        .then(async (result) => {
-            functionParseQueue.push({ node, result, reParse });
+        { path: cleanPath(node.getSourceFile().fileName), name: node.name?.escapedText })
+
+    try {
+        const fileId = result.records.map(rec => rec.get('id'));
+        const fxn = await pgClient.query(
+            `select id from functions where id = $1 limit 1`,
+            [fileId[0]]
+        );
+        if (fxn.rows.length === 0) {
             console.log(`[${new Date().toUTCString()}]: Pushed function ${node.name?.escapedText} to processing queue`);
-            forEachChild(node, (child: Node) => extractFunctionCalls(node, child));
+            functionParseQueue.push({ node, functionNodeId: fileId[0], reParse });
+        }
+    } catch (err: any) {
+        console.error(err.message);
+        return;
+    }
+    forEachChild(node, (child: Node) => extractFunctionCalls(node, child));
 
-            if (!Array.from(callSet).length) { return; }
-            addCallsRelation(node.name!.getText(), node.getSourceFile().fileName, callSet);
-        })
-        .catch(err => console.error(err));
-
+    if (!Array.from(callSet).length) { return; }
+    addCallsRelation(node.name!.getText(), node.getSourceFile().fileName, callSet);
 }
 
-export async function processFunctionWithAI(node: FunctionDeclaration, result: QueryResult<RecordShape>, reParse: boolean) {
+export async function processFunctionWithAI(node: FunctionDeclaration, functionNodeId: string, reParse: boolean) {
     console.log(`[${new Date().toUTCString()}]: Started parsing ${node.name?.escapedText}`);
 
-    const model = ollama.embedding(embeddingModel.modelId);
-    const googleAI = createGoogleGenerativeAI({
-        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
-    });
+    // const model = ollama.embedding(embeddingModel.modelId);
+    const googleAI = createGoogleGenerativeAI({ apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'] });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
 
-    const fileId = result.records.map(rec => rec.get('id'));
-    if (!reParse) {
-        try {
-            const fxn = await pgClient.query(
-                `select id from functions where id = $1 limit 1`,
-                [fileId[0]]
-            );
-            if (fxn.rows.length) { return; }
-        } catch (err: any) {
-            console.error(err.message);
-            return;
-        }
-    }
     const { text } = await generateText({
         model: gemini,
-        prompt: `Given the following function body, generate a highly technical, information-dense summary for it: \`\`\`${node.getText()}\`\`\``
+        prompt: `Given the following function body, generate a 3 line summary for it: \`\`\`${node.getText()}\`\`\``
     });
     const summary = text.replace(new RegExp("<think>.*</think>"), "");
-    const embedResult = await model.doEmbed({ values: [summary] });
+
+    await Promise.all([
+        pc.index('graphsense-dense').namespace('svelte').upsertRecords([{
+            id: functionNodeId, text: summary
+        }]),
+        pc.index('graphsense-sparse').namespace('svelte').upsertRecords([{
+            id: functionNodeId, text: summary
+        }]),
+    ]);
+
     try {
         await pgClient.query(
             `
-    INSERT INTO functions (id, name, code, summary, embedding)
-    VALUES ($1, $2, $3, $4, $5)
-    ON CONFLICT (id) DO UPDATE
-    SET name = EXCLUDED.name,
-    code = EXCLUDED.code,
-    summary = EXCLUDED.summary,
-    embedding = EXCLUDED.embedding;
+                INSERT INTO functions (id, name, code, summary)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (id) DO UPDATE
+                SET name = EXCLUDED.name,
+                code = EXCLUDED.code,
+                summary = EXCLUDED.summary;
                         `,
-            [fileId[0], node.name?.escapedText, node.getText(), summary, JSON.stringify(embedResult.embeddings[0])]
+            [functionNodeId, node.name?.escapedText, node.getText(), summary]
         );
+
+
         console.log(`[${new Date().toUTCString()}]: Parsed function: ${node.name?.escapedText}`)
     } catch (err) {
         console.error(err);
@@ -95,7 +97,7 @@ async function addCallsRelation(caller: string, callerPath: string, callees: Set
             where importReln.clause = $callee
             return importee.path as destination;
             `,
-            { path: callerPath, callee: callee }
+            { path: cleanPath(callerPath), callee: callee }
         );
         if (!result.records.length) { continue; }
 
@@ -105,6 +107,6 @@ async function addCallsRelation(caller: string, callerPath: string, callees: Set
          match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
          merge (caller)-[:CALLS]->(callee)
         `,
-            { callerName: caller, callerPath: callerPath, calleeName: callee, calleePath: destinationPath });
+            { callerName: caller, callerPath: cleanPath(callerPath), calleeName: callee, calleePath: cleanPath(destinationPath) });
     }
 }

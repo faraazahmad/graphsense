@@ -1,14 +1,13 @@
-import { ImportDeclaration, NamedImports, isCallExpression, isIdentifier, isPropertyAccessExpression, createSourceFile, forEachChild, FunctionDeclaration, Node, ScriptTarget, SyntaxKind, isStringLiteral } from 'typescript';
+import { ImportDeclaration, NamedImports, createSourceFile, forEachChild, FunctionDeclaration, Node, ScriptTarget, SyntaxKind, isStringLiteral } from 'typescript';
 import { dirname, resolve } from 'node:path';
 import { globSync, readFileSync } from 'node:fs';
-import { driver, executeQuery, pgClient, setupDB } from './db';
-import 'dotenv/config';
+import { executeQuery, pgClient, setupDB } from './db';
 import { parseFunctionDeclaration, processFunctionWithAI } from './parse';
-import { QueryResult, RecordShape } from 'neo4j-driver';
+import { REPO_PATH } from './env';
 
 interface FunctionParseDTO {
     node: FunctionDeclaration,
-    result: QueryResult<RecordShape>,
+    functionNodeId: string,
     reParse: boolean,
 }
 
@@ -73,7 +72,7 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
 
                 // Access each element in NamedImports
                 namedImports.elements.forEach(element => {
-                    result.push({ clause: element.name.text, source: importData.source });
+                    result.push({ clause: element.name.text, source: cleanPath(importData.source) });
                 });
             }
         } else if (importDeclaration.importClause?.name) {
@@ -82,9 +81,12 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
         }
     } else if (node.kind === SyntaxKind.FunctionDeclaration) {
         const functionNode = node as FunctionDeclaration;
+
+        // TODO: better handle anonymous functions
+        if (!(functionNode.name?.escapedText)) { return; }
         executeQuery(
             `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
-            { path: node.getSourceFile().fileName, name: functionNode.name?.escapedText }
+            { path: cleanPath(node.getSourceFile().fileName), name: functionNode.name?.escapedText }
         )
             .then(async result => {
                 const fileId = result.records.map(rec => rec.get('id'));
@@ -95,52 +97,68 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
                 if (fxn.rows.length) { return; }
 
                 parseFunctionDeclaration(functionNode, false);
+            })
+            .catch(err => {
+                console.log(functionNode.name?.escapedText)
+                console.log(functionNode.getSourceFile().fileName)
+                console.error(err)
+                process.exit(-1)
             });
     }
     return result;
 }
 
-function registerFile(path: string) {
+async function registerFile(path: string) {
     let results: ImportData[] = [];
     if (!(path[0] === '/')) { return results; }
 
     results = parseFile(path, []);
 
     for (const result of results) {
-        executeQuery(`
+        await executeQuery(`
           MERGE (file: File {path: $path})
       `,
-            { path: result.source })
+            { path: cleanPath(result.source) })
             .catch(err => console.error(err));
 
-        executeQuery(`
+        await executeQuery(`
          match (file1:File { path: $source }), (file2:File { path: $path })
          merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
       `,
-            { source: path, path: result.source, clause: result.clause })
+            { source: cleanPath(path), path: cleanPath(result.source), clause: result.clause })
             .catch(err => console.error(err));
     }
 
     return results;
 }
 
+export function cleanPath(path: string) {
+    return path.replace(REPO_PATH, '');
+}
+
 async function parseTopFunctionNode() {
     const functionParseArg = functionParseQueue[parseIndex];
     if (!functionParseArg) { return; }
 
-    const { node, result, reParse } = functionParseArg;
-    await processFunctionWithAI(node, result, reParse);
+    const { node, functionNodeId, reParse } = functionParseArg;
+    try {
+        await processFunctionWithAI(node, functionNodeId, reParse);
+    } catch (err: any) {
+        console.error(err);
+        return;
+    }
     parseIndex += 1;
 }
 
 async function prePass() {
+    console.log('Starting prepass')
     await setupDB();
 
     return Promise.resolve();
 }
 
 async function passOne() {
-    const REPO_PATH = `${resolve('.')}/rs-admin-api`;
+    console.log('Starting pass one')
     const fileList = globSync(`${REPO_PATH}/**/**/*.js`)
 
     fileList.forEach(registerFile);
@@ -149,6 +167,7 @@ async function passOne() {
 }
 
 async function passTwo() {
+    console.log('Starting pass two')
     setInterval(() => {
         parseTopFunctionNode();
     }, 5 * 1000);
@@ -156,11 +175,11 @@ async function passTwo() {
     return Promise.resolve();
 }
 
-async function endIndexing() {
-    driver.close();
-    pgClient.end();
-    return Promise.resolve();
-}
+// async function endIndexing() {
+//     driver.close();
+//     pgClient.end();
+//     return Promise.resolve();
+// }
 
 prePass()
     .then(passOne)

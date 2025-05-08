@@ -6,11 +6,13 @@ import fastifyCors from '@fastify/cors';
 import { executeQuery, pc, pgClient, setupDB, vectorNamespace } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
-import { streamText } from 'ai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { SERVICE_PORT } from './env';
+import { generateText, streamText, tool } from 'ai';
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { claude, gemini, REPO_PATH, SERVICE_PORT } from './env';
 import { anthropic } from '@ai-sdk/anthropic';
 import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
+import { z } from 'zod';
+import { globSync } from 'fs';
 
 let fastify = Fastify({
     logger: true
@@ -19,8 +21,6 @@ fastify.register(fastifyCors, {
     origin: "*",
     methods: "*"
 });
-
-const embeddingModel = ollama('nomic-embed-text');
 
 interface GraphNode {
     id: string;
@@ -255,10 +255,10 @@ async function getSimilarFunctions(description: string) {
     let sparseResults;
     await Promise.all([
         denseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
-        .then(res => denseResults = res),
+            .then(res => denseResults = res),
 
         sparseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
-        .then(res => sparseResults = res),
+            .then(res => sparseResults = res),
     ])
     // console.log(denseResults!.result.hits[0])
     // console.log(sparseResults)
@@ -281,6 +281,60 @@ async function getSimilarFunctions(description: string) {
 
 
 interface SearchQuery { description: string }
+fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function handler(request, reply) {
+    const { description } = request.query;
+
+    const decodedDescription = decodeURI(description);
+    const { text: answer, steps } = await generateText({
+        model: claude,
+        tools: {
+            create_execution_plan: tool({
+                description: 'Breaks down a complex query into sequential steps for execution',
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => expression,
+            }),
+            similar_functions: tool({
+                description: `A tool for searching functions based on what action they perform` +
+                    `<example>  Query: All functions deal with dependencies.
+                            Answer: manage dependencies 
+                </example>`,
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => getSimilarFunctions(expression),
+            }),
+            function_connections: tool({
+                description: `A tool for finding which functions are connected/imported/call other functions.` +
+                    `<example>  Query: All functions deal with dependencies.
+                            Answer: manage dependencies 
+                </example>`,
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => plan(expression),
+            }),
+            list_files: tool({
+                description: `A tool for searching files and directories in the current directory tree depth first using a glob pattern` +
+                    `<example>  Query: All JS files
+                            Answer: ./**/**/*.js
+                </example>`,
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => globSync(`${REPO_PATH}/${expression}`),
+            })
+        },
+        maxSteps: 10,
+        // system: `You are a Linux and regular expressions expert. For a given query you convert it into a regular expression that recursively looks in all directories within ${REPO_PATH}`,
+        system:
+            'You are a Linux and expert ' +
+            'Reason step by step. ' +
+            'Break down the query first using create_execution_plan' +
+            'Use tools when necessary ' +
+            'When you give the final answer, ' +
+            'provide an explanation for how you arrived at it.',
+        prompt: `Query: ${decodedDescription}`,
+    });
+
+    // console.log(steps.map(step => step.toolCalls.filter(s => s.type === 'tool-call').map(x => x.args)))
+    // console.log(steps.map(step => JSON.stringify(step.response.body)))
+    return reply.send(answer);
+})
+
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {
     const { description } = request.query;
 

@@ -1,31 +1,28 @@
 import 'dotenv/config';
 // Import the framework and instantiate it
 import Fastify, { FastifyRequest } from 'fastify'
-import { ollama } from 'ollama-ai-provider';
+import { FastifySSEPlugin } from "fastify-sse-v2";
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pc, pgClient, setupDB, vectorNamespace } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
 import { generateText, streamText, tool } from 'ai';
-import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { claude, gemini, REPO_PATH, SERVICE_PORT } from './env';
 import { anthropic } from '@ai-sdk/anthropic';
 import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 import { z } from 'zod';
 import { globSync } from 'fs';
 
-let fastify = Fastify({
-    logger: true
-});
-fastify.register(fastifyCors, {
-    origin: "*",
-    methods: "*"
-});
+let fastify = Fastify({ logger: true });
+fastify.register(FastifySSEPlugin);
+fastify.register(fastifyCors, { origin: "*", methods: "*" });
 
 interface GraphNode {
     id: string;
     labels: string[];
-    properties: any;
+    name: string,
+    path: string,
 }
 
 interface GraphRelationship {
@@ -55,7 +52,7 @@ function extractGraphElements(
 
     for (const record of records) {
         for (const key of record.keys) {
-            const value = record.get(key);
+            const value = record.get(key) as GraphNode;
 
             // Check if value is a Node
             if (value instanceof neo4j.types.Node) {
@@ -69,7 +66,8 @@ function extractGraphElements(
                         nodesMap.set(id, {
                             id,
                             labels: value.labels,
-                            ...value.properties,
+                            name: value.name,
+                            path: value.path
                         });
                     }
                 }
@@ -285,8 +283,18 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
     const { description } = request.query;
 
     const decodedDescription = decodeURI(description);
-    const { text: answer, steps } = await generateText({
-        model: claude,
+    reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Prevents Nginx from buffering the response
+        'Access-Control-Allow-Origin': '*', // Allow any origin to connect
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    });
+
+    const { textStream } = streamText({
+        model: gemini,
         tools: {
             create_execution_plan: tool({
                 description: 'Breaks down a complex query into sequential steps for execution',
@@ -294,45 +302,83 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
                 execute: async ({ expression }) => expression,
             }),
             similar_functions: tool({
-                description: `A tool for searching functions based on what action they perform` +
-                    `<example>  Query: All functions deal with dependencies.
+                description: `A tool for searching functions based on their semantic meaning` +
+                    `<example>  Query: All functions that deal with dependencies.
                             Answer: manage dependencies 
                 </example>`,
                 parameters: z.object({ expression: z.string() }),
                 execute: async ({ expression }) => getSimilarFunctions(expression),
             }),
             function_connections: tool({
-                description: `A tool for finding which functions are connected/imported/call other functions.` +
-                    `<example>  Query: All functions deal with dependencies.
-                            Answer: manage dependencies 
+                description: `A tool to use when connections between functions need to be found (via calls).` +
+                    `<example>  Query: Which functions have more than 5+ callers?
+                            Answer: Functions that have more than 5 other functions calling them.
                 </example>`,
                 parameters: z.object({ expression: z.string() }),
-                execute: async ({ expression }) => plan(expression),
-            }),
-            list_files: tool({
-                description: `A tool for searching files and directories in the current directory tree depth first using a glob pattern` +
-                    `<example>  Query: All JS files
-                            Answer: ./**/**/*.js
-                </example>`,
-                parameters: z.object({ expression: z.string() }),
-                execute: async ({ expression }) => globSync(`${REPO_PATH}/${expression}`),
+                execute: async ({ expression }) => {
+                    const queryMD = await plan(expression);
+                    const cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+                    console.log(cypherQuery)
+                    const result = await executeQuery(cypherQuery, {});
+                    const { nodes, relationships } = extractGraphElements(
+                        result.records,
+                        ['File', 'Function'],
+                        ['CALLS', 'IMPORTS_FROM']
+                    );
+                    return { nodes, relationships };
+                },
             })
         },
-        maxSteps: 10,
-        // system: `You are a Linux and regular expressions expert. For a given query you convert it into a regular expression that recursively looks in all directories within ${REPO_PATH}`,
+        onError({ error }) {
+            console.error(error);
+            reply.send(500);
+        },
+        onStepFinish({ toolResults }) {
+            if (!toolResults) return;
+
+            const data = JSON.stringify({ type: 'tool_result', data: toolResults })
+            reply.raw.write(`data: ${data}\n\n`);
+        },
+        maxSteps: 3,
         system:
-            'You are a Linux and expert ' +
+            'You are a Linux and systems expert ' +
             'Reason step by step. ' +
-            'Break down the query first using create_execution_plan' +
-            'Use tools when necessary ' +
+            'Use only the tools necessary for the task' +
             'When you give the final answer, ' +
             'provide an explanation for how you arrived at it.',
         prompt: `Query: ${decodedDescription}`,
     });
 
-    // console.log(steps.map(step => step.toolCalls.filter(s => s.type === 'tool-call').map(x => x.args)))
-    // console.log(steps.map(step => JSON.stringify(step.response.body)))
-    return reply.send(answer);
+    for await (const value of textStream) {
+        const data = JSON.stringify({ type: 'text_chunk', data: value });
+        reply.raw.write(`data: ${data}\n\n`);
+    }
+
+    const data = JSON.stringify({ type: 'done' });
+    reply.raw.write(`data: ${data}\n\n`);
+    reply.raw.end();
+    return reply.send(200);
+    // try {
+    //     while (true) {
+    //         const { done, value } = await reader.read();
+    //         if (done) {
+    //             const data = JSON.stringify({ type: 'done' });
+    //             reply.raw.write(`data: ${data}\n\n`);
+    //         };
+    //         if (!value) continue;
+    //
+    //         const data = JSON.stringify({ type: 'text_chunk', data: value });
+    //         reply.sse({ data })
+    //     }
+    // } catch (error: any) {
+    //     console.error('Error processing stream:', error);
+    //     const data = JSON.stringify({ type: 'error', data: error.message });
+    //     reply.raw.write(`data: ${data}\n\n`);
+    // } finally {
+    //     reader.releaseLock();
+    //     reply.raw.end();
+    //     return reply.send(200);
+    // }
 })
 
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {

@@ -84,8 +84,9 @@ export async function answer(query: string, nodes: any[], relationships: any[], 
 }
 
 export async function plan(query: string, error?: Error, functions?: any[], description?: string) {
+    console.log(query);
     const systemPrompt = `
-        You are an expert Cypher query generator for a Neo4j database with the following schema and requirements:
+        You are an Cypher expert for a Neo4j database with the following schema and requirements:
 
         Database schema:
         - Nodes:
@@ -142,11 +143,11 @@ export async function plan(query: string, error?: Error, functions?: any[], desc
         ${error ? 'Please avoid this error in the query: ' + error.message : ''}
 
         ${functions?.length && description ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
-        the Cypher query uses these functions as the starting point.` : ''}
+        the Cypher query includes these functions.` : ''}
 
         `;
-        const userPrompt = `
-            Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
+    const userPrompt = `
+            Generate a complete, optimized, error-free Cypher query based on the following user prompt: "${query}"
 
             Return only the query code
         `;

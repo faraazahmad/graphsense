@@ -133,7 +133,7 @@ export async function plan(query: string, error?: Error, functions?: any[], desc
         4. Query: "Get me all functions that call more than 3 functions"
         Cypher:
         MATCH (caller:Function)-[rel:CALLS]->(callee:Function)
-        WITH caller, collect(rel) AS rels, collect(callee) AS callees
+        WITH caller, rel, collect(rel) AS rels, collect(callee) AS callees
         WHERE size(callees) > 3
         UNWIND rels AS r
         WITH caller, r

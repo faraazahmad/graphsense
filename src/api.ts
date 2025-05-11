@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { globSync } from 'fs';
 import { CohereClient } from 'cohere-ai';
 
-const cohere = new CohereClient({ token: process.env['COHERE_API_KEY']});
+const cohere = new CohereClient({ token: process.env['COHERE_API_KEY'] });
 
 let fastify = Fastify({ logger: true });
 fastify.register(FastifySSEPlugin);
@@ -69,8 +69,8 @@ function extractGraphElements(
                         nodesMap.set(id, {
                             id,
                             labels: value.labels,
-                            name: value.name,
-                            path: value.path
+                            name: value.properties.name,
+                            path: value.properties.path
                         });
                     }
                 }
@@ -254,11 +254,12 @@ async function getSimilarFunctions(description: string) {
 
     let denseResults;
     let sparseResults;
+    const topK = 6;
     await Promise.all([
-        denseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
+        denseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
             .then(res => denseResults = res),
 
-        sparseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
+        sparseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
             .then(res => sparseResults = res),
     ])
     // console.log(denseResults!.result.hits[0])
@@ -268,6 +269,7 @@ async function getSimilarFunctions(description: string) {
     const cohereResponse = await cohere.v2.rerank({
         model: 'rerank-v3.5',
         query: description,
+        topN: topK,
         documents: mergedResults.map(res => res.text)
     });
     // const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
@@ -288,9 +290,13 @@ async function getSimilarFunctions(description: string) {
 }
 
 
-interface SearchQuery { description: string }
-fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function handler(request, reply) {
+interface ChatQuery { description: string }
+interface ChatRouteParams { query_id: string }
+fastify.get<{ Querystring: ChatQuery, Params: ChatRouteParams }>('/chat/query/:query_id', async function handler(request, reply) {
     const { description } = request.query;
+    const { query_id } = request.params;
+
+    if (reply.raw.destroyed) { return; }
 
     const decodedDescription = decodeURI(description);
     reply.raw.writeHead(200, {
@@ -326,16 +332,25 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
                 </example>`,
                 parameters: z.object({ expression: z.string() }),
                 execute: async ({ expression }) => {
-                    const queryMD = await plan(expression);
-                    const cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
-                    console.log(cypherQuery)
-                    const result = await executeQuery(cypherQuery, {});
-                    const { nodes, relationships } = extractGraphElements(
-                        result.records,
-                        ['File', 'Function'],
-                        ['CALLS', 'IMPORTS_FROM']
-                    );
-                    return { nodes, relationships };
+                    let error;
+
+                    while (true) {
+                        const queryMD = await plan(expression, error);
+                        const cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+                        console.log(cypherQuery)
+                        try {
+                            const result = await executeQuery(cypherQuery, {});
+                            const { nodes, relationships } = extractGraphElements(
+                                result.records,
+                                ['File', 'Function'],
+                                ['CALLS', 'IMPORTS_FROM']
+                            );
+                            return { nodes, relationships };
+                        } catch (err) {
+                            error = err as Error;
+                            continue;
+                        }
+                    }
                 },
             })
         },
@@ -349,11 +364,11 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
             const data = JSON.stringify({ type: 'tool_result', data: toolResults })
             reply.raw.write(`data: ${data}\n\n`);
         },
-        maxSteps: 3,
+        maxSteps: 10,
         system:
             'You are a Linux and systems expert ' +
-            'Reason step by step. ' +
-            'Use only the tools necessary for the task, but don\'t mention which tools you\'re using.' +
+            'First create a plan, then reason step by step. ' +
+            'Use only the tools necessary for the task, but don\'t mention the name of the tools you\'re using.' +
             'When you give the final answer, ' +
             'provide an explanation for how you arrived at it.',
         prompt: `Query: ${decodedDescription}`,
@@ -364,11 +379,15 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
         reply.raw.write(`data: ${data}\n\n`);
     }
 
-    const data = JSON.stringify({ type: 'done' });
-    reply.raw.write(`data: ${data}\n\n`);
-    return reply.raw.end();
+    if (!reply.raw.destroyed) {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        // return reply;
+    }
+    // reply.raw.end();
+
 });
 
+interface SearchQuery { description: string }
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {
     const { description } = request.query;
 

@@ -13,6 +13,9 @@ import { anthropic } from '@ai-sdk/anthropic';
 import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 import { z } from 'zod';
 import { globSync } from 'fs';
+import { CohereClient } from 'cohere-ai';
+
+const cohere = new CohereClient({ token: process.env['COHERE_API_KEY']});
 
 let fastify = Fastify({ logger: true });
 fastify.register(FastifySSEPlugin);
@@ -262,10 +265,17 @@ async function getSimilarFunctions(description: string) {
     // console.log(sparseResults)
 
     const mergedResults = mergeChunks(denseResults!, sparseResults!);
-    const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
-    const rankedIds = reRanked.data.map(row => row.document!._id);
+    const cohereResponse = await cohere.v2.rerank({
+        model: 'rerank-v3.5',
+        query: description,
+        documents: mergedResults.map(res => res.text)
+    });
+    // const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
+    // const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
+    const reRanked = cohereResponse.results.map(row => mergedResults[row.index]);
+    const rankedIds = reRanked.map(row => row._id);
+    const ids = rankedIds.map(id => `'${id}'`).join(',');
 
-    const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
     const functionsResult = await pgClient.query(`SELECT id, name FROM functions where id in (${ids});`);
     const functionsMap: any = {};
     for (const func of functionsResult.rows) { functionsMap[func.id] = func; }
@@ -294,7 +304,7 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
     });
 
     const { textStream } = streamText({
-        model: gemini,
+        model: claude,
         tools: {
             create_execution_plan: tool({
                 description: 'Breaks down a complex query into sequential steps for execution',
@@ -331,7 +341,7 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
         },
         onError({ error }) {
             console.error(error);
-            reply.send(500);
+            // reply.send(500);
         },
         onStepFinish({ toolResults }) {
             if (!toolResults) return;
@@ -343,7 +353,7 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
         system:
             'You are a Linux and systems expert ' +
             'Reason step by step. ' +
-            'Use only the tools necessary for the task' +
+            'Use only the tools necessary for the task, but don\'t mention which tools you\'re using.' +
             'When you give the final answer, ' +
             'provide an explanation for how you arrived at it.',
         prompt: `Query: ${decodedDescription}`,
@@ -356,30 +366,8 @@ fastify.get<{ Querystring: SearchQuery }>('/chat/with-tool', async function hand
 
     const data = JSON.stringify({ type: 'done' });
     reply.raw.write(`data: ${data}\n\n`);
-    reply.raw.end();
-    return reply.send(200);
-    // try {
-    //     while (true) {
-    //         const { done, value } = await reader.read();
-    //         if (done) {
-    //             const data = JSON.stringify({ type: 'done' });
-    //             reply.raw.write(`data: ${data}\n\n`);
-    //         };
-    //         if (!value) continue;
-    //
-    //         const data = JSON.stringify({ type: 'text_chunk', data: value });
-    //         reply.sse({ data })
-    //     }
-    // } catch (error: any) {
-    //     console.error('Error processing stream:', error);
-    //     const data = JSON.stringify({ type: 'error', data: error.message });
-    //     reply.raw.write(`data: ${data}\n\n`);
-    // } finally {
-    //     reader.releaseLock();
-    //     reply.raw.end();
-    //     return reply.send(200);
-    // }
-})
+    return reply.raw.end();
+});
 
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {
     const { description } = request.query;

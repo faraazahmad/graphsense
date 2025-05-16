@@ -1,5 +1,6 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import { CohereClient } from "cohere-ai";
 
 export const REPO_PATH = '/home/faraaz/.graphsense/svelte';
 export const SERVICE_PORT = 8080;

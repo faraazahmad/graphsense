@@ -1,31 +1,31 @@
 import 'dotenv/config';
 // Import the framework and instantiate it
 import Fastify, { FastifyRequest } from 'fastify'
-import { ollama } from 'ollama-ai-provider';
+import { FastifySSEPlugin } from "fastify-sse-v2";
 import fastifyCors from '@fastify/cors';
 import { executeQuery, pc, pgClient, setupDB, vectorNamespace } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
-import { streamText } from 'ai';
+import { generateText, streamText, tool } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { SERVICE_PORT } from './env';
+import { claude, gemini, REPO_PATH, SERVICE_PORT } from './env';
 import { anthropic } from '@ai-sdk/anthropic';
 import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
+import { z } from 'zod';
+import { globSync } from 'fs';
+import { CohereClient } from 'cohere-ai';
 
-let fastify = Fastify({
-    logger: true
-});
-fastify.register(fastifyCors, {
-    origin: "*",
-    methods: "*"
-});
+const cohere = new CohereClient({ token: process.env['COHERE_API_KEY'] });
 
-const embeddingModel = ollama('nomic-embed-text');
+let fastify = Fastify({ logger: true });
+fastify.register(FastifySSEPlugin);
+fastify.register(fastifyCors, { origin: "*", methods: "*" });
 
 interface GraphNode {
     id: string;
     labels: string[];
-    properties: any;
+    name: string,
+    path: string,
 }
 
 interface GraphRelationship {
@@ -55,7 +55,7 @@ function extractGraphElements(
 
     for (const record of records) {
         for (const key of record.keys) {
-            const value = record.get(key);
+            const value = record.get(key) as GraphNode;
 
             // Check if value is a Node
             if (value instanceof neo4j.types.Node) {
@@ -69,7 +69,8 @@ function extractGraphElements(
                         nodesMap.set(id, {
                             id,
                             labels: value.labels,
-                            ...value.properties,
+                            name: value.properties.name,
+                            path: value.properties.path
                         });
                     }
                 }
@@ -253,21 +254,30 @@ async function getSimilarFunctions(description: string) {
 
     let denseResults;
     let sparseResults;
+    const topK = 6;
     await Promise.all([
-        denseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
-        .then(res => denseResults = res),
+        denseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
+            .then(res => denseResults = res),
 
-        sparseIndex.searchRecords({ query: { inputs: { text: description }, topK: 10 }, fields: ['id', 'text'] })
-        .then(res => sparseResults = res),
+        sparseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
+            .then(res => sparseResults = res),
     ])
     // console.log(denseResults!.result.hits[0])
     // console.log(sparseResults)
 
     const mergedResults = mergeChunks(denseResults!, sparseResults!);
-    const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
-    const rankedIds = reRanked.data.map(row => row.document!._id);
+    const cohereResponse = await cohere.v2.rerank({
+        model: 'rerank-v3.5',
+        query: description,
+        topN: topK,
+        documents: mergedResults.map(res => res.text)
+    });
+    // const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
+    // const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
+    const reRanked = cohereResponse.results.map(row => mergedResults[row.index]);
+    const rankedIds = reRanked.map(row => row._id);
+    const ids = rankedIds.map(id => `'${id}'`).join(',');
 
-    const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
     const functionsResult = await pgClient.query(`SELECT id, name FROM functions where id in (${ids});`);
     const functionsMap: any = {};
     for (const func of functionsResult.rows) { functionsMap[func.id] = func; }
@@ -279,6 +289,103 @@ async function getSimilarFunctions(description: string) {
     return Promise.resolve(rankedFunctions);
 }
 
+
+interface ChatQuery { description: string }
+interface ChatRouteParams { query_id: string }
+fastify.get<{ Querystring: ChatQuery, Params: ChatRouteParams }>('/chat/query/:query_id', async function handler(request, reply) {
+    const { description } = request.query;
+    const { query_id } = request.params;
+
+    if (reply.raw.destroyed) { return; }
+
+    const decodedDescription = decodeURI(description);
+    reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Prevents Nginx from buffering the response
+        'Access-Control-Allow-Origin': '*', // Allow any origin to connect
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    });
+
+    const { textStream } = streamText({
+        model: claude,
+        tools: {
+            create_execution_plan: tool({
+                description: 'Breaks down a complex query into sequential steps for execution',
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => expression,
+            }),
+            similar_functions: tool({
+                description: `A tool for searching functions based on their semantic meaning` +
+                    `<example>  Query: All functions that deal with dependencies.
+                            Answer: manage dependencies 
+                </example>`,
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => getSimilarFunctions(expression),
+            }),
+            function_connections: tool({
+                description: `A tool to use when connections between functions need to be found (via calls).` +
+                    `<example>  Query: Which functions have more than 5+ callers?
+                            Answer: Functions that have more than 5 other functions calling them.
+                </example>`,
+                parameters: z.object({ expression: z.string() }),
+                execute: async ({ expression }) => {
+                    let error;
+
+                    while (true) {
+                        const queryMD = await plan(expression, error);
+                        const cypherQuery = queryMD.replace(/```/g, '').replace(/cypher/, '')
+                        console.log(cypherQuery)
+                        try {
+                            const result = await executeQuery(cypherQuery, {});
+                            const { nodes, relationships } = extractGraphElements(
+                                result.records,
+                                ['File', 'Function'],
+                                ['CALLS', 'IMPORTS_FROM']
+                            );
+                            return { nodes, relationships };
+                        } catch (err) {
+                            error = err as Error;
+                            continue;
+                        }
+                    }
+                },
+            })
+        },
+        onError({ error }) {
+            console.error(error);
+            // reply.send(500);
+        },
+        onStepFinish({ toolResults }) {
+            if (!toolResults) return;
+
+            const data = JSON.stringify({ type: 'tool_result', data: toolResults })
+            reply.raw.write(`data: ${data}\n\n`);
+        },
+        maxSteps: 10,
+        system:
+            'You are a Linux and systems expert ' +
+            'First create a plan, then reason step by step. ' +
+            'Use only the tools necessary for the task, but don\'t mention the name of the tools you\'re using.' +
+            'When you give the final answer, ' +
+            'provide an explanation for how you arrived at it.',
+        prompt: `Query: ${decodedDescription}`,
+    });
+
+    for await (const value of textStream) {
+        const data = JSON.stringify({ type: 'text_chunk', data: value });
+        reply.raw.write(`data: ${data}\n\n`);
+    }
+
+    if (!reply.raw.destroyed) {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        // return reply;
+    }
+    // reply.raw.end();
+
+});
 
 interface SearchQuery { description: string }
 fastify.get<{ Querystring: SearchQuery }>('/functions/search', async function handler(request, reply) {

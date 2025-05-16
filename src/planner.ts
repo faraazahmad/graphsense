@@ -1,6 +1,6 @@
 import { anthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
-import { generateText } from 'ai';
+import { generateText, tool } from 'ai';
 
 export async function makeQueryDecision(query: string) {
     const prompt = `
@@ -83,9 +83,10 @@ export async function answer(query: string, nodes: any[], relationships: any[], 
     return text;
 }
 
-export async function plan(query: string, error?: Error, functions: any[], description: string) {
-    const prompt = `
-        You are an expert Cypher query generator for a Neo4j database with the following schema and requirements:
+export async function plan(query: string, error?: Error, functions?: any[], description?: string) {
+    console.log(query);
+    const systemPrompt = `
+        You are an Cypher expert for a Neo4j database with the following schema and requirements:
 
         Database schema:
         - Nodes:
@@ -132,7 +133,7 @@ export async function plan(query: string, error?: Error, functions: any[], descr
         4. Query: "Get me all functions that call more than 3 functions"
         Cypher:
         MATCH (caller:Function)-[rel:CALLS]->(callee:Function)
-        WITH caller, collect(rel) AS rels, collect(callee) AS callees
+        WITH caller, rel, collect(rel) AS rels, collect(callee) AS callees
         WHERE size(callees) > 3
         UNWIND rels AS r
         WITH caller, r
@@ -141,19 +142,21 @@ export async function plan(query: string, error?: Error, functions: any[], descr
 
         ${error ? 'Please avoid this error in the query: ' + error.message : ''}
 
-        ${functions.length && description ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
-        the Cypher query uses these functions as the starting point.` : ''}
+        ${functions?.length && description ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
+        the Cypher query includes these functions.` : ''}
 
-        Generate a complete, error-free Cypher query based on the following user prompt: "${query}"
+        `;
+    const userPrompt = `
+            Generate a complete, optimized, error-free Cypher query based on the following user prompt: "${query}"
 
-        Return only the query code
-        `
+            Return only the query code
+        `;
 
     const googleAI = createGoogleGenerativeAI({
         apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
     });
     const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
     const claude = anthropic('claude-3-5-sonnet-latest');
-    const { text } = await generateText({ model: claude, prompt });
+    const { text } = await generateText({ model: gemini, system: systemPrompt, prompt: userPrompt });
     return text;
 }

@@ -3,7 +3,7 @@ import 'dotenv/config';
 import Fastify, { FastifyRequest } from 'fastify'
 import { FastifySSEPlugin } from "fastify-sse-v2";
 import fastifyCors from '@fastify/cors';
-import { executeQuery, pc, pgClient, setupDB, vectorNamespace } from './db';
+import { executeQuery, pc, db, setupDB, vectorNamespace } from './db';
 import neo4j, { Record, Node, Relationship } from 'neo4j-driver';
 import { makeQueryDecision, plan } from './planner';
 import { generateText, streamText, tool } from 'ai';
@@ -14,6 +14,7 @@ import type { Hit } from '@pinecone-database/pinecone/dist/pinecone-generated-ts
 import { z } from 'zod';
 import { globSync } from 'fs';
 import { CohereClient } from 'cohere-ai';
+import { prePass } from '.';
 
 const cohere = new CohereClient({ token: process.env['COHERE_API_KEY'] });
 
@@ -267,7 +268,7 @@ async function getSimilarFunctions(description: string) {
     const rankedIds = reRanked.map(row => row._id);
     const ids = rankedIds.map(id => `'${id}'`).join(',');
 
-    const functionsResult = await pgClient.query(`SELECT id, name FROM functions where id in (${ids});`);
+    const functionsResult = await db.relational.client!.query(`SELECT id, name FROM functions where id in (${ids});`);
     const functionsMap: any = {};
     for (const func of functionsResult.rows) { functionsMap[func.id] = func; }
 
@@ -407,7 +408,7 @@ function getFunctionData(functionNode: Node): FunctionData {
 interface FunctionRouteParams { id: string }
 fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, reply) => {
     const { id } = request.params;
-    const result = await pgClient.query(`select id, name, code, summary from functions where id = $1 limit 1`, [id]);
+    const result = await db.relational.client!.query(`select id, name, code, summary from functions where id = $1 limit 1`, [id]);
     const functionData = result.rows[0];
 
     const functionCallsResult = await executeQuery(
@@ -432,7 +433,7 @@ fastify.get<{ Params: FunctionRouteParams }>('/functions/:id', async (request, r
     return reply.send({ info: functionData, nodes, links });
 })
 
-setupDB()
+prePass()
     .then(() => {
         fastify.listen({ port: SERVICE_PORT });
     })

@@ -2,8 +2,8 @@ import 'dotenv/config';
 import neo4j, { Driver } from 'neo4j-driver';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { Client } from 'pg';
-import { REPO_PATH } from './env';
-import { readFileSync } from 'fs';
+import { getRepoQualifier, NEON_API_KEY, REPO_PATH, REPO_URI } from './env';
+import { NeonToolkit } from '@neondatabase/toolkit';
 
 export const pc = new Pinecone({
   apiKey: process.env['PINECONE_API_KEY'] as string
@@ -16,23 +16,36 @@ export const vectorNamespace = index.namespace(REPO_PATH);
 export let driver: Driver;
 
 export async function executeQuery(query: string, variables: Object) {
-    // console.log(query)
-    const session = driver.session();
+    const session = db.graph.client!.session();
     const result = await session.run(query, variables);
     await session.close();
 
     return Promise.resolve(result);
 }
 
-export const pgClient = new Client({
-    user: 'user',
-    password: 'password',
-    database: 'postgres',
-    port: 5432
-});
+interface DBData {
+    relational: {
+        projectId: string
+        client?: Client
+    }
+    graph: {
+        client?: Driver
+    }
+}
+export const db: DBData = {
+    relational: {
+        projectId: '',
+        client: undefined,
+    },
+    graph: {
+        client: undefined
+    }
+}
 
-export async function setupDB() {
-    driver = neo4j.driver('bolt://localhost:7687');
+const toolkit = new NeonToolkit(NEON_API_KEY);
+
+export async function setupDB(defaultBranch: string) {
+    db.graph.client = neo4j.driver('bolt://localhost:7687');
 
     // Create neo4j constraints
     await executeQuery(`
@@ -47,9 +60,33 @@ export async function setupDB() {
         REQUIRE (f.name, f.path) IS UNIQUE
     `, {});
 
-    await pgClient.connect();
-    const psqlSetupQuery = readFileSync(`${__dirname}/../db/schema.sql`).toString();
-    await pgClient.query(psqlSetupQuery);
+    const projectName = getRepoQualifier(REPO_URI);
+    const listProjectResponse = await toolkit.apiClient.listProjects({ search: projectName });
+
+    if (listProjectResponse.data.projects.length === 1) {
+        db.relational.projectId = listProjectResponse.data.projects[0].id;
+    } else {
+        const createProjectResponse = await toolkit.apiClient.createProject({
+            project: {
+                name: projectName,
+                branch: {
+                    name: defaultBranch,
+                    database_name: defaultBranch,
+                    role_name: 'owner'
+                }
+            }
+        });
+        db.relational.projectId = createProjectResponse.data.project.id;
+    }
+
+    const connURIResponse = await toolkit.apiClient.getConnectionUri({
+        database_name: defaultBranch,
+        projectId: db.relational.projectId,
+        role_name: 'owner'
+    });
+    db.relational.client = await new Client(connURIResponse.data.uri);
 
     return Promise.resolve();
 }
+
+// setupDB();

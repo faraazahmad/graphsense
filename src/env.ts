@@ -1,7 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 
-function getRepoPath(repoUri: string) {
+export function getRepoQualifier(repoUri: string) {
     const isHttpUrl = repoUri.startsWith('http://') || repoUri.startsWith('https://');
     const isSshUrl = repoUri.startsWith('git@');
 
@@ -25,15 +25,15 @@ function getRepoPath(repoUri: string) {
         repoName = pathParts[1].replace(/^rs-/, '').replace(/\.git$/, '');
     }
 
-    const targetPath = `${HOME_PATH}/.graphsense/${org}/${repoName}`;
-    console.log(targetPath)
-    return targetPath;
+    return `${org}/${repoName}`;
+;
 }
 
 export const GITHUB_PAT=process.env.GITHUB_PAT;
+export const NEON_API_KEY=process.env.NEON_API_KEY as string;
 export const HOME_PATH = '/home/faraaz'
 export const REPO_URI = process.env.REPO_URI as string;
-export const REPO_PATH = getRepoPath(REPO_URI);
+export const REPO_PATH = `${HOME_PATH}/.graphsense/${getRepoQualifier(REPO_URI)}`
 export const SERVICE_PORT = 8080;
 export const claude = anthropic('claude-3-5-sonnet-latest');
 export const gemini = google('gemini-2.0-flash-lite-preview-02-05');

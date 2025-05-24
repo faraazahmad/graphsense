@@ -2,7 +2,7 @@ import { ImportDeclaration, NamedImports, createSourceFile, forEachChild, Functi
 import { dirname, resolve } from 'node:path';
 import { globSync, readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { executeQuery, pgClient, setupDB } from './db';
+import { db, executeQuery, setupDB } from './db';
 import { parseFunctionDeclaration, processFunctionWithAI } from './parse';
 import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI } from './env';
 
@@ -91,7 +91,7 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
         )
             .then(async result => {
                 const fileId = result.records.map(rec => rec.get('id'));
-                const fxn = await pgClient.query(
+                const fxn = await db.relational.client!.query(
                     `select id from functions where id = $1 limit 1`,
                     [fileId[0]]
                 );
@@ -151,9 +151,10 @@ async function parseTopFunctionNode() {
     parseIndex += 1;
 }
 
-async function cloneRepo() {
+async function cloneRepo(): Promise<string> {
     const isHttpUrl = REPO_PATH.startsWith('http://') || REPO_PATH.startsWith('https://');
     const isSshUrl = REPO_PATH.startsWith('git@');
+    let defaultBranch = 'main';
 
     if (isHttpUrl || isSshUrl) {
         let org: string, repoName: string, cloneUrl: string;
@@ -176,18 +177,20 @@ async function cloneRepo() {
 
         const targetPath = `${HOME_PATH}/.graphsense/${org}/${repoName}`;
 
-        console.log(targetPath)
         if (!existsSync(targetPath)) {
             console.log(`Cloning ${cloneUrl} to ${targetPath}`);
             execSync(`git clone --depth 1 ${cloneUrl} ${targetPath}`, { stdio: 'inherit' });
+            defaultBranch = execSync(`git -C ${targetPath} rev-parse --abbrev-ref HEAD`, { encoding: 'utf8' }).trim();
         }
     }
+
+    return Promise.resolve(defaultBranch);
 }
 
-async function prePass() {
+export async function prePass() {
     console.log('Starting prepass')
-    await cloneRepo();
-    await setupDB();
+    const defaultBranch = await cloneRepo();
+    await setupDB(defaultBranch);
 
     return Promise.resolve();
 }

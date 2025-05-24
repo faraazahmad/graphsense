@@ -1,10 +1,8 @@
 import { isCallExpression, isIdentifier, forEachChild, FunctionDeclaration, Node } from 'typescript';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
-import { executeQuery, pc, pgClient } from './db';
+import { db, executeQuery, pc } from './db';
 import { cleanPath, functionParseQueue } from '.';
-import { DenseEmbedding, SparseEmbedding } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/inference';
-import { REPO_PATH } from './env';
+import { gemini, getRepoQualifier, REPO_URI } from './env';
 
 export async function parseFunctionDeclaration(node: FunctionDeclaration, reParse = false) {
     const callSet = new Set<string>();
@@ -25,7 +23,7 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration, rePars
 
     try {
         const fileId = result.records.map(rec => rec.get('id'));
-        const fxn = await pgClient.query(
+        const fxn = await db.relational.client!.query(
             `select id from functions where id = $1 limit 1`,
             [fileId[0]]
         );
@@ -46,27 +44,24 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration, rePars
 export async function processFunctionWithAI(node: FunctionDeclaration, functionNodeId: string, reParse: boolean) {
     console.log(`[${new Date().toUTCString()}]: Started parsing ${node.name?.escapedText}`);
 
-    // const model = ollama.embedding(embeddingModel.modelId);
-    const googleAI = createGoogleGenerativeAI({ apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'] });
-    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-
     const { text } = await generateText({
         model: gemini,
         prompt: `Given the following function body, generate a 3 line summary for it: \`\`\`${node.getText()}\`\`\``
     });
     const summary = text.replace(new RegExp("<think>.*</think>"), "");
 
+    const namespace = getRepoQualifier(REPO_URI);
     await Promise.all([
-        pc.index('graphsense-dense').namespace('svelte').upsertRecords([{
+        pc.index('graphsense-dense').namespace(namespace).upsertRecords([{
             id: functionNodeId, text: summary
         }]),
-        pc.index('graphsense-sparse').namespace('svelte').upsertRecords([{
+        pc.index('graphsense-sparse').namespace(namespace).upsertRecords([{
             id: functionNodeId, text: summary
         }]),
     ]);
 
     try {
-        await pgClient.query(
+        await db.relational.client!.query(
             `
                 INSERT INTO functions (id, name, code, summary)
                 VALUES ($1, $2, $3, $4)
@@ -74,7 +69,7 @@ export async function processFunctionWithAI(node: FunctionDeclaration, functionN
                 SET name = EXCLUDED.name,
                 code = EXCLUDED.code,
                 summary = EXCLUDED.summary;
-                        `,
+            `,
             [functionNodeId, node.name?.escapedText, node.getText(), summary]
         );
 
@@ -86,7 +81,6 @@ export async function processFunctionWithAI(node: FunctionDeclaration, functionN
 }
 
 async function addCallsRelation(caller: string, callerPath: string, callees: Set<string>) {
-    // console.log(`Function ${node.name?.getText()} calls ${functionCall}`);
     // Check if caller sourceFile imports callee function, search for all functions at once
     // For all imported callees, Add :CALLS relation between the functions
 
@@ -103,10 +97,10 @@ async function addCallsRelation(caller: string, callerPath: string, callees: Set
 
         const destinationPath = result.records.map(rec => rec.get('destination'))[0]
         executeQuery(
-            `
-         match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
-         merge (caller)-[:CALLS]->(callee)
+        `
+            match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
+            merge (caller)-[:CALLS]->(callee)
         `,
-            { callerName: caller, callerPath: cleanPath(callerPath), calleeName: callee, calleePath: cleanPath(destinationPath) });
+        { callerName: caller, callerPath: cleanPath(callerPath), calleeName: callee, calleePath: cleanPath(destinationPath) });
     }
 }

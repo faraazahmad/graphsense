@@ -3,6 +3,7 @@ import neo4j, { Driver } from 'neo4j-driver';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { Client } from 'pg';
 import { REPO_PATH } from './env';
+import { readFileSync } from 'fs';
 
 export const pc = new Pinecone({
   apiKey: process.env['PINECONE_API_KEY'] as string
@@ -46,9 +47,9 @@ export async function setupDB() {
         REQUIRE (f.name, f.path) IS UNIQUE
     `, {});
 
-    await pgClient.connect()
-        .then(() => console.log('Connected to Postgres'))
-        .catch((err) => `Error connecting to Postgres: ${err}`);
+    await pgClient.connect();
+    const psqlSetupQuery = readFileSync(`${__dirname}/../db/schema.sql`).toString();
+    await pgClient.query(psqlSetupQuery);
 
     return Promise.resolve();
 }

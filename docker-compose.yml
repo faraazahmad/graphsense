@@ -3,14 +3,14 @@ version: '3'
 services:
   neo4j:
     image: neo4j:latest
-    container_name: graphsense-neo4j
-    volumes:  
-        - /$HOME/neo4j/logs:/logs
-        - /$HOME/neo4j/config:/config
-        - /$HOME/neo4j/data:/data
-        - /$HOME/neo4j/plugins:/plugins
+    container_name: graphsense-neo4j-admin-api
+    volumes:
+      - /$HOME/neo4j/logs:/logs
+      - /$HOME/neo4j/config:/config
+      - /$HOME/neo4j/data:/data
+      - /$HOME/neo4j/plugins:/plugins
     environment:
-        - NEO4J_AUTH=none
+      - NEO4J_AUTH=none
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -18,11 +18,11 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17 # Prebuilt image with pgvector support
-    container_name: graphsense-pgvector
+    container_name: graphsense-pgvector-admin-api
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: postgres
+      POSTGRES_DB: admin-api
     ports:
       - "5432:5432"
     volumes:

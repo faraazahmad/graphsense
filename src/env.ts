@@ -30,7 +30,7 @@ function getRepoPath(repoUri: string) {
     return targetPath;
 }
 
-export const GITHUB_PAT="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"
+export const GITHUB_PAT=process.env.GITHUB_PAT;
 export const HOME_PATH = '/home/faraaz'
 export const REPO_URI = process.env.REPO_URI as string;
 export const REPO_PATH = getRepoPath(REPO_URI);

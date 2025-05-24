@@ -39,7 +39,7 @@ interface GraphRelationship {
 /**
  * Extracts unique nodes and relationships from Neo4j query records,
  * filtering nodes by allowedLabels and relationships by allowedTypes.
- * 
+ *
  * @param records Neo4j query result records
  * @param allowedNodeLabels List of node labels to include (if empty, includes all)
  * @param allowedRelTypes List of relationship types to include (if empty, includes all)
@@ -241,29 +241,19 @@ function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
 }
 
 async function getSimilarFunctions(description: string) {
-    // const model = ollama.embedding(embeddingModel.modelId);
-    // const { embeddings } = await model.doEmbed({
-    //     values: [description]
-    // });
-    //
-    // const result = await pgClient.query(`SELECT id, name FROM functions ORDER BY embedding <=> '${JSON.stringify(embeddings[0])}' LIMIT 7;`)
-    //
-    // return Promise.resolve(result.rows);
     const denseIndex = pc.index('graphsense-dense').namespace('svelte')
     const sparseIndex = pc.index('graphsense-sparse').namespace('svelte')
 
     let denseResults;
     let sparseResults;
-    const topK = 6;
+    const topK = 10;
     await Promise.all([
         denseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
             .then(res => denseResults = res),
 
         sparseIndex.searchRecords({ query: { inputs: { text: description }, topK }, fields: ['id', 'text'] })
             .then(res => sparseResults = res),
-    ])
-    // console.log(denseResults!.result.hits[0])
-    // console.log(sparseResults)
+    ]);
 
     const mergedResults = mergeChunks(denseResults!, sparseResults!);
     const cohereResponse = await cohere.v2.rerank({
@@ -272,8 +262,7 @@ async function getSimilarFunctions(description: string) {
         topN: topK,
         documents: mergedResults.map(res => res.text)
     });
-    // const ids = reRanked.data.map(d => `'${d.document!._id}'`).join(',');
-    // const reRanked = await pc.inference.rerank('bge-reranker-v2-m3', description, mergedResults as any[]);
+
     const reRanked = cohereResponse.results.map(row => mergedResults[row.index]);
     const rankedIds = reRanked.map(row => row._id);
     const ids = rankedIds.map(id => `'${id}'`).join(',');
@@ -320,7 +309,7 @@ fastify.get<{ Querystring: ChatQuery, Params: ChatRouteParams }>('/chat/query/:q
             similar_functions: tool({
                 description: `A tool for searching functions based on their semantic meaning` +
                     `<example>  Query: All functions that deal with dependencies.
-                            Answer: manage dependencies 
+                            Answer: manage dependencies
                 </example>`,
                 parameters: z.object({ expression: z.string() }),
                 execute: async ({ expression }) => getSimilarFunctions(expression),

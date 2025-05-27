@@ -275,4 +275,6 @@ async function main() {
   prePass().then(passOne).then(passTwo);
 }
 
-main();
+if (require.main === module) {
+  main();
+}

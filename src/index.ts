@@ -173,6 +173,7 @@ export function cleanPath(path: string) {
 
 async function parseTopFunctionNode() {
   const functionParseArg = functionParseQueue[parseIndex];
+  parseIndex += 1;
   if (!functionParseArg) {
     return;
   }
@@ -184,7 +185,6 @@ async function parseTopFunctionNode() {
     console.error(err);
     return;
   }
-  parseIndex += 1;
 }
 
 async function cloneRepo(): Promise<string> {

@@ -2,7 +2,13 @@ import "dotenv/config";
 import neo4j, { Driver } from "neo4j-driver";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { Client } from "pg";
-import { getRepoQualifier, NEON_API_KEY, REPO_PATH, REPO_URI } from "./env";
+import {
+  getRepoQualifier,
+  INDEX_FROM_SCRATCH,
+  NEON_API_KEY,
+  REPO_PATH,
+  REPO_URI,
+} from "./env";
 import { NeonToolkit } from "@neondatabase/toolkit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -98,6 +104,12 @@ export async function setupDB(defaultBranch: string) {
   db.relational.client = new Client(
     "http://user:password@localhost:5432/admin-api",
   );
+
+  if (INDEX_FROM_SCRATCH) {
+    await executeQuery(`MATCH (n) DETACH DELETE n;`, {});
+    db.relational.client!.query("drop table if exists functions;");
+  }
+
   db.relational.client!.connect();
   const pgSchema = readFileSync(
     resolve(`${__dirname}/../db/schema.sql`),

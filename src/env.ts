@@ -36,6 +36,7 @@ export const NEON_API_KEY = process.env.NEON_API_KEY as string;
 export const HOME_PATH = process.env.HOME as string;
 export const REPO_URI = process.env.REPO_URI as string;
 export const REPO_PATH = `${HOME_PATH}/.graphsense/${getRepoQualifier(REPO_URI)}`;
+export const INDEX_FROM_SCRATCH = true;
 export const SERVICE_PORT = 8080;
 export const claude = anthropic("claude-3-5-sonnet-latest");
 export const gemini = google("gemini-2.0-flash-lite-preview-02-05");

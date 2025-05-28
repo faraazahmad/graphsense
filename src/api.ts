@@ -22,7 +22,6 @@ import { z } from "zod";
 import { globSync } from "fs";
 import { CohereClient } from "cohere-ai";
 import { prePass } from ".";
-import { getSimilarFunctions } from "./tools";
 
 const cohere = new CohereClient({ token: process.env["COHERE_API_KEY"] });
 

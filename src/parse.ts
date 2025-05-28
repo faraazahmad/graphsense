@@ -108,14 +108,25 @@ export async function processFunctionWithAI(
   try {
     await db.relational.client!.query(
       `
-        INSERT INTO functions (id, name, code, summary)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (id) DO UPDATE
-        SET name = EXCLUDED.name,
-        code = EXCLUDED.code,
+        INSERT INTO functions (id, name, path, start_line, end_line, summary)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        path = EXCLUDED.path,
+        start_line = EXCLUDED.start_line,
+        end_line = EXCLUDED.end_line,
         summary = EXCLUDED.summary;
       `,
-      [functionNodeId, node.name?.escapedText, node.getText(), summary],
+      [
+        functionNodeId,
+        node.name?.escapedText,
+        cleanPath(node.getSourceFile().fileName),
+        node.getSourceFile().getLineAndCharacterOfPosition(node.getStart())
+          .line + 1,
+        node.getSourceFile().getLineAndCharacterOfPosition(node.getEnd()).line +
+          1,
+        summary,
+      ],
     );
 
     console.log(

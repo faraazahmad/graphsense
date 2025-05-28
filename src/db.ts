@@ -104,19 +104,28 @@ export async function setupDB(defaultBranch: string) {
   db.relational.client = new Client(
     "http://user:password@localhost:5432/admin-api",
   );
+  db.relational.client!.connect();
 
   if (INDEX_FROM_SCRATCH) {
+    console.log("Indexing from scratch");
+
+    console.log("Deleting all nodes from Neo4j");
     await executeQuery(`MATCH (n) DETACH DELETE n;`, {});
-    db.relational.client!.query("drop table if exists functions;");
+
+    console.log("Dropping functions table from pg");
+    await db.relational.client!.query("drop table if exists functions;");
   }
 
-  db.relational.client!.connect();
   const pgSchema = readFileSync(
     resolve(`${__dirname}/../db/schema.sql`),
   ).toString();
-  db.relational.client!.query(pgSchema);
+  const result = await db.relational.client!.query(pgSchema);
 
-  return Promise.resolve();
+  return Promise.resolve(result.rows);
 }
 
-// setupDB();
+if (require.main === module) {
+  setupDB("main")
+    .then((res) => console.log(res))
+    .catch((err) => console.error(err));
+}

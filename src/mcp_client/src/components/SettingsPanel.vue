@@ -21,6 +21,33 @@
     </div>
 
     <div class="form-group">
+      <label>Environment variables</label>
+      <div class="env-vars-container">
+        <div class="env-var-row" v-for="(key, index) in envVarKeys" :key="index">
+          <input
+            class="input-var-key"
+            type="text"
+            v-model="envVarKeys[index]"
+            placeholder="Variable name"
+            @input="updateEnvVarKey(index, $event.target.value)"
+          >
+          <input
+            class="input-var-value"
+            type="text"
+            v-model="localSettings.environmentVariables[key]"
+            placeholder="Variable value"
+          >
+          <button
+            @click="removeEnvVar"
+            type="button"
+            class="delete-button"
+          >x</button>
+        </div>
+        <button class="button add-button" @click="addEnvVar" type="button">+ Add Env var</button>
+      </div>
+    </div>
+
+    <div class="form-group">
       <label>Anthropic API Key:</label>
       <input 
         v-model="localSettings.anthropicApiKey" 
@@ -72,6 +99,7 @@ const mcpStore = useMcpStore()
 
 const localSettings = ref({ ...mcpStore.settings })
 const serverArgsString = ref(mcpStore.settings.serverArgs.join(', '))
+const envVarKeys = ref<string[]>([]);
 
 const isValid = computed(() => 
   localSettings.value.serverCommand.trim() !== '' &&
@@ -109,10 +137,52 @@ async function connectToServer() {
   }
 }
 
+async function connectMcpMock() {
+  // Mock connection function - implement as needed
+  console.log('Mock MCP connection')
+}
+
+function updateEnvVarKeys() {
+  envVarKeys.value = Object.keys(localSettings.value.environmentVariables || {})
+  if (envVarKeys.value.length === 0) {
+    addEnvVar()
+  }
+}
+
+function addEnvVar() {
+  envVarKeys.value.push('')
+}
+
+function removeEnvVar(index: number) {
+  const keyToRemove = envVarKeys.value[index]
+  envVarKeys.value.splice(index, 1)
+  if (keyToRemove && localSettings.value.environmentVariables) {
+    delete localSettings.value.environmentVariables[keyToRemove]
+  }
+}
+
+function updateEnvVarKey(index: number, newKey: string) {
+  const oldKey = envVarKeys.value[index]
+  if (oldKey && oldKey !== newKey && localSettings.value.environmentVariables) {
+    const value = localSettings.value.environmentVariables[oldKey]
+    delete localSettings.value.environmentVariables[oldKey]
+    if (newKey.trim()) {
+      localSettings.value.environmentVariables[newKey] = value || ''
+    }
+  } else if (newKey.trim() && localSettings.value.environmentVariables) {
+    localSettings.value.environmentVariables[newKey] = localSettings.value.environmentVariables[newKey] || ''
+  }
+  envVarKeys.value[index] = newKey
+}
+
 onMounted(() => {
   mcpStore.loadSettings()
-  localSettings.value = { ...mcpStore.settings }
+  localSettings.value = { 
+    ...mcpStore.settings,
+    environmentVariables: mcpStore.settings.environmentVariables || {}
+  }
   serverArgsString.value = mcpStore.settings.serverArgs.join(', ')
+  updateEnvVarKeys()
 })
 </script>
 

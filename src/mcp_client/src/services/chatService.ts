@@ -38,7 +38,7 @@ export async function sendChatMessage(content: string): Promise<void> {
 
     // Call Claude with tools
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-4-sonnet-20250514',
       max_tokens: 4096,
       messages,
       tools: tools.length > 0 ? tools : undefined,
@@ -66,14 +66,14 @@ export async function sendChatMessage(content: string): Promise<void> {
           })
 
           // If the tool returned content, add it to the assistant's response
-          if (toolResult && toolResult.content) {
-            assistantContent += `\n\nTool result from ${contentBlock.name}:\n`
-            for (const content of toolResult.content) {
-              if (content.type === 'text') {
-                assistantContent += content.text
-              }
-            }
-          }
+          // if (toolResult && toolResult.content) {
+          //   assistantContent += `\n\nTool result from ${contentBlock.name}:\n`
+          //   for (const content of toolResult.content) {
+          //     if (content.type === 'text') {
+          //       assistantContent += content.text
+          //     }
+          //   }
+          // }
         } catch (error) {
           toolCalls.push({
             name: contentBlock.name,

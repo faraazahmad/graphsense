@@ -50,13 +50,11 @@ server.tool(
 // Add function callers tool
 server.tool(
   "function_callers",
+  "Find functions that call a specific function",
   {
-    description: "Find functions that call a specific function",
-    inputSchema: z.object({
-      functionId: z
-        .string()
-        .describe("The element ID of the function to find callers for"),
-    }),
+    functionId: z
+      .string()
+      .describe("The element ID of the function to find callers for"),
   },
   async ({ functionId }) => {
     try {
@@ -98,13 +96,11 @@ server.tool(
 // Add function callees tool
 server.tool(
   "function_callees",
+  "Find functions called by a specific function",
   {
-    description: "Find functions called by a specific function",
-    inputSchema: z.object({
-      functionId: z
-        .string()
-        .describe("The element ID of the function to find callees for"),
-    }),
+    functionId: z
+      .string()
+      .describe("The element ID of the function to find callees for"),
   },
   async ({ functionId }) => {
     try {
@@ -146,13 +142,11 @@ server.tool(
 // Add function details tool
 server.tool(
   "function_details",
+  "Get detailed information about a specific function",
   {
-    description: "Get detailed information about a specific function",
-    inputSchema: z.object({
-      functionId: z
-        .string()
-        .describe("The element ID of the function to get details for"),
-    }),
+    functionId: z
+      .string()
+      .describe("The element ID of the function to get details for"),
   },
   async ({ functionId }) => {
     try {

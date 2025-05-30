@@ -17,9 +17,8 @@ const server = new McpServer({
 server.tool(
   "similar_functions",
   {
-    description: z
-      .string()
-      .describe("Description of the functions to search for"),
+    description:
+      "To search for functions in the codebase based on what they do.",
     topK: z
       .number()
       .optional()
@@ -201,9 +200,11 @@ server.resource(
   }),
 );
 
-// Start receiving messages on stdin and sending messages on stdout
-const transport = new StdioServerTransport();
-server
-  .connect(transport)
-  .then(() => console.log("MCP server running"))
-  .catch((err) => console.error(err));
+if (require.main === module) {
+  // Start receiving messages on stdin and sending messages on stdout
+  const transport = new StdioServerTransport();
+  server
+    .connect(transport)
+    .then(() => console.log("MCP server running"))
+    .catch((err) => console.error(err));
+}

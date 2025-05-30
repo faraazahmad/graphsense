@@ -515,11 +515,13 @@ fastify.get<{ Params: FunctionRouteParams }>(
   },
 );
 
-prePass()
-  .then(() => {
-    fastify.listen({ port: SERVICE_PORT });
-  })
-  .catch((err) => {
-    fastify.log.error(err);
-    process.exit(1);
-  });
+if (require.main === module) {
+  prePass()
+    .then(() => {
+      fastify.listen({ port: SERVICE_PORT });
+    })
+    .catch((err) => {
+      fastify.log.error(err);
+      process.exit(1);
+    });
+}

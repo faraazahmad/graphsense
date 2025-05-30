@@ -35,8 +35,8 @@
             class="tool-call"
           >
             <strong>{{ tool.name }}</strong>
-            <pre>{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
-            <div v-if="tool.result" class="tool-result">
+            <pre style="overflow-x: auto;">{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
+            <div v-if="tool.result" class="tool-result" style="overflow-x: auto;">
               <strong>Result:</strong>
               <pre>{{ JSON.stringify(tool.result, null, 2) }}</pre>
             </div>
@@ -67,7 +67,6 @@
         <textarea 
           v-model="newMessage"
           @keydown="handleKeyDown"
-          :disabled="!canSendMessage"
           class="textarea"
           placeholder="Type your message... (Shift+Enter for new line, Enter to send)"
           rows="3"
@@ -75,7 +74,6 @@
         
         <button 
           @click="sendMessage"
-          :disabled="!canSendMessage"
           class="button send-button"
         >
           Send

@@ -33,12 +33,12 @@
           >
           <input
             class="input-var-value"
-            type="text"
+            type="password"
             v-model="localSettings.environmentVariables[key]"
             placeholder="Variable value"
           >
           <button
-            @click="removeEnvVar"
+            @click="removeEnvVar(index)"
             type="button"
             class="delete-button"
           >x</button>
@@ -120,6 +120,7 @@ watch(serverArgsString, (newValue) => {
 
 function saveSettings() {
   mcpStore.setSettings(localSettings.value)
+  console.log(mcpStore.settings)
 }
 
 async function connectToServer() {

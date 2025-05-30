@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { executeQuery, db } from "./db";
 import { getSimilarFunctions } from "./api";
+import { prePass } from ".";
 
 // Create an MCP server
 const server = new McpServer({
@@ -16,26 +17,25 @@ const server = new McpServer({
 // Add similar functions search tool
 server.tool(
   "similar_functions",
+  "To search for functions in the codebase based on what they do.",
   {
-    description:
-      "To search for functions in the codebase based on what they do.",
-    topK: z
-      .number()
-      .optional()
-      .describe("Number of results to return (default: 10)"),
+    function_description: z.string().describe("description of the task performed by the function"),
+    topK: z.number().describe("Number of results to return (default: 10)"),
   },
-  async ({ description, topK = 10 }) => {
+  async ({ function_description, topK = 10 }) => {
     try {
-      const functions = await getSimilarFunctions(description);
+      const functions = await getSimilarFunctions(function_description);
+      console.log(functions)
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(functions.slice(0, topK), null, 2),
+            text: JSON.stringify(functions),
           },
         ],
       };
     } catch (error) {
+      console.error(error)
       return {
         content: [
           {
@@ -52,9 +52,12 @@ server.tool(
 server.tool(
   "function_callers",
   {
-    functionId: z
-      .string()
-      .describe("The element ID of the function to find callers for"),
+    description: "Find functions that call a specific function",
+    inputSchema: z.object({
+      functionId: z
+        .string()
+        .describe("The element ID of the function to find callers for"),
+    }),
   },
   async ({ functionId }) => {
     try {
@@ -97,9 +100,12 @@ server.tool(
 server.tool(
   "function_callees",
   {
-    functionId: z
-      .string()
-      .describe("The element ID of the function to find callees for"),
+    description: "Find functions called by a specific function",
+    inputSchema: z.object({
+      functionId: z
+        .string()
+        .describe("The element ID of the function to find callees for"),
+    }),
   },
   async ({ functionId }) => {
     try {
@@ -142,9 +148,12 @@ server.tool(
 server.tool(
   "function_details",
   {
-    functionId: z
-      .string()
-      .describe("The element ID of the function to get details for"),
+    description: "Get detailed information about a specific function",
+    inputSchema: z.object({
+      functionId: z
+        .string()
+        .describe("The element ID of the function to get details for"),
+    }),
   },
   async ({ functionId }) => {
     try {
@@ -201,6 +210,7 @@ server.resource(
 );
 
 if (require.main === module) {
+  prePass();
   // Start receiving messages on stdin and sending messages on stdout
   const transport = new StdioServerTransport();
   server

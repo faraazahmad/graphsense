@@ -280,6 +280,7 @@ export function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
 }
 
 export async function getSimilarFunctions(description: string) {
+  console.log(description)
   const namespace = getRepoQualifier(REPO_URI).replace("/", "-");
   const denseIndex = pc.index("graphsense-dense").namespace(namespace);
   const sparseIndex = pc.index("graphsense-sparse").namespace(namespace);
@@ -318,7 +319,7 @@ export async function getSimilarFunctions(description: string) {
   const ids = rankedIds.map((id) => `'${id}'`).join(",");
 
   const functionsResult = await db.relational.client!.query(
-    `SELECT id, name FROM functions where id in (${ids});`,
+    `SELECT id, path, name FROM functions where id in (${ids});`,
   );
   const functionsMap: any = {};
   for (const func of functionsResult.rows) {
@@ -327,7 +328,8 @@ export async function getSimilarFunctions(description: string) {
 
   const rankedFunctions = rankedIds
     .map((id) => ({
-      id,
+      id: functionsMap[id]?.id,
+      path: functionsMap[id]?.path,
       name: functionsMap[id]?.name,
     }))
     .filter((func) => func.name);

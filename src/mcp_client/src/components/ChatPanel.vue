@@ -35,8 +35,8 @@
             class="tool-call"
           >
             <strong>{{ tool.name }}</strong>
-            <pre style="overflow-x: auto;">{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
-            <div v-if="tool.result" class="tool-result" style="overflow-x: auto;">
+            <pre>{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
+            <div v-if="tool.result" class="tool-result">
               <strong>Result:</strong>
               <pre>{{ JSON.stringify(tool.result, null, 2) }}</pre>
             </div>
@@ -170,6 +170,7 @@ onMounted(() => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px 0;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -188,6 +189,8 @@ onMounted(() => {
   padding: 15px;
   border-radius: 8px;
   max-width: 80%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .message.user {
@@ -228,7 +231,10 @@ onMounted(() => {
 .message-content pre {
   margin: 0;
   white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   font-family: inherit;
+  max-width: 100%;
 }
 
 .message-content p {
@@ -266,6 +272,10 @@ onMounted(() => {
   background: #e9ecef;
   padding: 8px;
   border-radius: 4px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .tool-result {

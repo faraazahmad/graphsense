@@ -10,7 +10,7 @@ import { prePass } from ".";
 
 // Create an MCP server
 const server = new McpServer({
-  name: "Code Graph RAG",
+  name: "GraphSense MCP",
   version: "1.0.0",
 });
 
@@ -25,7 +25,6 @@ server.tool(
   async ({ function_description, topK = 10 }) => {
     try {
       const functions = await getSimilarFunctions(function_description);
-      console.log(functions)
       return {
         content: [
           {

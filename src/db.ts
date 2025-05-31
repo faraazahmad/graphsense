@@ -52,7 +52,7 @@ export const db: DBData = {
 
 const toolkit = new NeonToolkit(NEON_API_KEY);
 
-export async function setupDB(defaultBranch: string) {
+export async function setupDB(defaultBranch: string, from_scratch: boolean = false) {
   db.graph.client = neo4j.driver("bolt://localhost:7687");
 
   // Create neo4j constraints

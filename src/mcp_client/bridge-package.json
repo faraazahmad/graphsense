@@ -1,0 +1,13 @@
+{
+  "name": "mcp-bridge-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node bridge-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "express": "^4.18.0",
+    "cors": "^2.8.5"
+  }
+}

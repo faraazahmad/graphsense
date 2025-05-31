@@ -29,14 +29,14 @@ let fastify = Fastify({ logger: true });
 fastify.register(FastifySSEPlugin);
 fastify.register(fastifyCors, { origin: "*", methods: "*" });
 
-interface GraphNode {
+export interface GraphNode {
   id: string;
   labels: string[];
   name: string;
   path: string;
 }
 
-interface GraphRelationship {
+export interface GraphRelationship {
   id: string;
   type: string;
   source: string;
@@ -53,7 +53,7 @@ interface GraphRelationship {
  * @param allowedRelTypes List of relationship types to include (if empty, includes all)
  * @returns Object with arrays of unique nodes and relationships
  */
-function extractGraphElements(
+export function extractGraphElements(
   records: Record[],
   allowedNodeLabels: string[] = [],
   allowedRelTypes: string[] = [],
@@ -240,14 +240,14 @@ fastify.get<{ Querystring: PlanQuery }>(
   },
 );
 
-interface SearchResult {
+export interface SearchResult {
   result: {
     hits: Hit[];
   };
   usage: any;
 }
 
-interface ChunkOutput {
+export interface ChunkOutput {
   _id: string;
   text: string;
 }
@@ -255,7 +255,7 @@ interface ChunkOutput {
 /**
  * Get the unique hits from two search results and return them as single array of {'_id', 'chunk_text'} dicts.
  */
-function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
+export function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
   // Deduplicate by _id
   const hitsMap = new Map<string, Hit>();
 
@@ -279,7 +279,8 @@ function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
   return result;
 }
 
-async function getSimilarFunctions(description: string) {
+export async function getSimilarFunctions(description: string) {
+  console.log(description)
   const namespace = getRepoQualifier(REPO_URI).replace("/", "-");
   const denseIndex = pc.index("graphsense-dense").namespace(namespace);
   const sparseIndex = pc.index("graphsense-sparse").namespace(namespace);
@@ -318,7 +319,7 @@ async function getSimilarFunctions(description: string) {
   const ids = rankedIds.map((id) => `'${id}'`).join(",");
 
   const functionsResult = await db.relational.client!.query(
-    `SELECT id, name FROM functions where id in (${ids});`,
+    `SELECT id, path, name FROM functions where id in (${ids});`,
   );
   const functionsMap: any = {};
   for (const func of functionsResult.rows) {
@@ -327,7 +328,8 @@ async function getSimilarFunctions(description: string) {
 
   const rankedFunctions = rankedIds
     .map((id) => ({
-      id,
+      id: functionsMap[id]?.id,
+      path: functionsMap[id]?.path,
       name: functionsMap[id]?.name,
     }))
     .filter((func) => func.name);
@@ -458,20 +460,20 @@ fastify.get<{ Querystring: SearchQuery }>(
   },
 );
 
-function getRelationData(relation: Relationship) {
+export function getRelationData(relation: Relationship) {
   const { type, startNodeElementId, endNodeElementId } = relation;
   return { type, source: startNodeElementId, target: endNodeElementId };
 }
 
-interface FunctionData {
+export interface FunctionData {
   id: string;
   name: string;
 }
-type FunctionDataResult = {
+export type FunctionDataResult = {
   [key: string]: FunctionData;
 };
 
-function getFunctionData(functionNode: Node): FunctionData {
+export function getFunctionData(functionNode: Node): FunctionData {
   const { elementId, properties } = functionNode;
   return { id: elementId, name: properties.name };
 }
@@ -515,11 +517,13 @@ fastify.get<{ Params: FunctionRouteParams }>(
   },
 );
 
-prePass()
-  .then(() => {
-    fastify.listen({ port: SERVICE_PORT });
-  })
-  .catch((err) => {
-    fastify.log.error(err);
-    process.exit(1);
-  });
+if (require.main === module) {
+  prePass()
+    .then(() => {
+      fastify.listen({ port: SERVICE_PORT });
+    })
+    .catch((err) => {
+      fastify.log.error(err);
+      process.exit(1);
+    });
+}

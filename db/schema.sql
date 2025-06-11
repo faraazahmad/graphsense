@@ -1,11 +1,9 @@
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE if not exists functions (
+CREATE TABLE IF NOT EXISTS functions (
     id varchar(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     path varchar(255) NOT NULL,
-    start_line integer,
-    end_line integer,
+    start_line INTEGER,
+    end_line INTEGER,
     summary TEXT,
-    embedding vector (1024) -- Vector column for embeddings
+    embedding VECTOR(1024)
 );

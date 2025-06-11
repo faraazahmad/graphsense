@@ -14,7 +14,7 @@ import { globSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI } from "./env";
+import { GITHUB_PAT, HOME_PATH, INDEX_FROM_SCRATCH, REPO_PATH, REPO_URI } from "./env";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -191,6 +191,7 @@ async function cloneRepo(): Promise<string> {
   const isHttpUrl =
     REPO_URI.startsWith("http://") || REPO_URI.startsWith("https://");
   const isSshUrl = REPO_URI.startsWith("git@");
+  const isLocalPath = !isHttpUrl && !isSshUrl && existsSync(REPO_URI);
 
   if (isHttpUrl || isSshUrl) {
     let org: string, repoName: string, cloneUrl: string;
@@ -228,7 +229,10 @@ async function cloneRepo(): Promise<string> {
         stdio: "inherit",
       });
     }
+  } else if (isLocalPath) {
+    console.log(`Using local repository at ${REPO_URI}`);
   }
+
   const defaultBranch = execSync(
     `git -C ${REPO_PATH} rev-parse --abbrev-ref HEAD`,
     {
@@ -242,7 +246,7 @@ async function cloneRepo(): Promise<string> {
 export async function prePass() {
   console.log("Starting prepass");
   const defaultBranch = await cloneRepo();
-  await setupDB(defaultBranch);
+  await setupDB(defaultBranch || "main");
 
   return Promise.resolve();
 }
@@ -272,7 +276,19 @@ async function passTwo() {
 // }
 
 async function main() {
-  prePass().then(passOne).then(passTwo);
+  // if (INDEX_FROM_SCRATCH) {
+  //   console.log("Indexing from scratch");
+
+  //   console.log("Deleting all nodes from Neo4j");
+  //   await executeQuery(`MATCH (n) DETACH DELETE n;`, {});
+
+  //   console.log("Dropping functions table from pg");
+  //   await db.relational.client!.query("drop table if exists functions;");
+  // }
+
+  await prePass();
+  await passOne();
+  await passTwo();
 }
 
 if (require.main === module) {

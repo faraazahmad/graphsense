@@ -7,13 +7,17 @@ import {
   NEON_API_KEY,
   REPO_PATH,
   REPO_URI,
+  PINECONE_API_KEY,
+  NEO4J_URI,
+  NEO4J_USERNAME,
+  NEO4J_PASSWORD,
 } from "./env";
 import { NeonToolkit } from "@neondatabase/toolkit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const pc = new Pinecone({
-  apiKey: process.env["PINECONE_API_KEY"] as string,
+  apiKey: PINECONE_API_KEY,
 });
 
 const index = pc.index("llama-text-embed-v2-index");
@@ -49,8 +53,15 @@ export const db: DBData = {
   },
 };
 
-export async function setupDB(defaultBranch: string = "main", from_scratch: boolean = false) {
-  db.graph.client = neo4j.driver("bolt://localhost:7687");
+export async function setupDB(
+  defaultBranch: string = "main",
+  from_scratch: boolean = false,
+) {
+  const auth = NEO4J_PASSWORD
+    ? neo4j.auth.basic(NEO4J_USERNAME, NEO4J_PASSWORD)
+    : undefined;
+
+  db.graph.client = neo4j.driver(NEO4J_URI, auth);
 
   // Create neo4j constraints
   await executeQuery(
@@ -100,13 +111,10 @@ export async function setupDB(defaultBranch: string = "main", from_scratch: bool
     role_name: "owner",
   });
   db.relational.client = new Client(connURIResponse.data.uri);
-  // db.relational.client = new Client(
-  //   "http://user:password@localhost:5432/admin-api",
-  // );
 
   db.relational.client!.connect();
 
-  await db.relational.client!.query('CREATE EXTENSION IF NOT EXISTS vector');
+  await db.relational.client!.query("CREATE EXTENSION IF NOT EXISTS vector");
   const pgSchema = readFileSync(
     resolve(`${__dirname}/../db/schema.sql`),
   ).toString();
@@ -115,10 +123,10 @@ export async function setupDB(defaultBranch: string = "main", from_scratch: bool
   try {
     result = await db.relational.client!.query(pgSchema);
   } catch (error) {
-    console.log('there was an error')
-    console.error(error)
+    console.log("there was an error");
+    console.error(error);
   }
-  console.log(result)
+  console.log(result);
 
   return Promise.resolve(result!.rows);
 }

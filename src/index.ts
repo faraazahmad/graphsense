@@ -14,7 +14,7 @@ import { globSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, INDEX_FROM_SCRATCH, REPO_PATH, REPO_URI } from "./env";
+import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI } from "./env";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -146,15 +146,15 @@ async function registerFile(path: string) {
   for (const result of results) {
     await executeQuery(
       `
-          MERGE (file: File {path: $path})
+        MERGE (file: File {path: $path})
       `,
       { path: cleanPath(result.source) },
     ).catch((err) => console.error(err));
 
     await executeQuery(
       `
-         match (file1:File { path: $source }), (file2:File { path: $path })
-         merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
+        match (file1:File { path: $source }), (file2:File { path: $path })
+        merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
       `,
       {
         source: cleanPath(path),
@@ -168,7 +168,8 @@ async function registerFile(path: string) {
 }
 
 export function cleanPath(path: string) {
-  return path.replace(REPO_PATH, "");
+  const repoPath = REPO_PATH;
+  return path.replace(repoPath, "");
 }
 
 async function parseTopFunctionNode() {
@@ -187,7 +188,9 @@ async function parseTopFunctionNode() {
   }
 }
 
-async function cloneRepo(): Promise<string> {
+async function useRepo(): Promise<string> {
+  // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
+  /*
   const isHttpUrl =
     REPO_URI.startsWith("http://") || REPO_URI.startsWith("https://");
   const isSshUrl = REPO_URI.startsWith("git@");
@@ -232,20 +235,36 @@ async function cloneRepo(): Promise<string> {
   } else if (isLocalPath) {
     console.log(`Using local repository at ${REPO_URI}`);
   }
+  */
 
-  const defaultBranch = execSync(
-    `git -C ${REPO_PATH} rev-parse --abbrev-ref HEAD`,
-    {
+  // Use the repository path from environment variable
+  const repoPath = REPO_PATH;
+  console.log(`Using repository at ${repoPath}`);
+
+  // List repository contents
+  try {
+    const lsOutput = execSync(`ls -la ${repoPath}`, {
       encoding: "utf8",
-    },
-  ).trim();
+    });
+    console.log("Repository contents:");
+    console.log(lsOutput);
+  } catch (error) {
+    console.error("Failed to list repository contents:", error);
+  }
 
-  return Promise.resolve(defaultBranch);
+  // const defaultBranch = execSync(
+  //   `git -C ${repoPath} rev-parse --abbrev-ref HEAD`,
+  //   {
+  //     encoding: "utf8",
+  //   },
+  // ).trim();
+
+  return Promise.resolve('main');
 }
 
 export async function prePass() {
   console.log("Starting prepass");
-  const defaultBranch = await cloneRepo();
+  const defaultBranch = await useRepo();
   await setupDB(defaultBranch || "main");
 
   return Promise.resolve();
@@ -253,7 +272,8 @@ export async function prePass() {
 
 async function passOne() {
   console.log("Starting pass one");
-  const fileList = globSync(`${REPO_PATH}/**/**/*.js`);
+  const repoPath = REPO_PATH;
+  const fileList = globSync(`${repoPath}/**/**/*.js`);
 
   fileList.forEach(registerFile);
 
@@ -269,23 +289,7 @@ async function passTwo() {
   return Promise.resolve();
 }
 
-// async function endIndexing() {
-//     driver.close();
-//     pgClient.end();
-//     return Promise.resolve();
-// }
-
 async function main() {
-  // if (INDEX_FROM_SCRATCH) {
-  //   console.log("Indexing from scratch");
-
-  //   console.log("Deleting all nodes from Neo4j");
-  //   await executeQuery(`MATCH (n) DETACH DELETE n;`, {});
-
-  //   console.log("Dropping functions table from pg");
-  //   await db.relational.client!.query("drop table if exists functions;");
-  // }
-
   await prePass();
   await passOne();
   await passTwo();

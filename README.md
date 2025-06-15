@@ -2,6 +2,43 @@
 
 A powerful code analysis and retrieval system that combines graph databases, vector search, and AI to understand and query codebases through natural language. GraphSense indexes JavaScript/TypeScript codebases into both a Neo4j graph database and a PostgreSQL vector database, enabling sophisticated queries about code structure, dependencies, and semantic relationships.
 
+## 🚀 Quick Start
+
+The fastest way to get started is with our interactive setup script:
+
+```bash
+./quick-start.sh
+```
+
+Or choose your preferred method:
+
+```bash
+# Local development
+./quick-start.sh dev
+
+# Docker development  
+./quick-start.sh docker
+
+# Production deployment
+./quick-start.sh prod
+
+# Validate configuration
+./quick-start.sh validate
+```
+
+### One-Command Setup
+
+```bash
+# Development with npm
+npm run dev
+
+# Docker environment
+npm run docker:setup
+
+# Production
+npm run prod
+```
+
 ## Features
 
 - **Multi-Modal Code Analysis**: Combines graph-based structural analysis with semantic vector search
@@ -35,51 +72,93 @@ The system uses a hybrid approach combining:
 ## Prerequisites
 
 - Node.js 16+
-- Docker and Docker Compose
+- Docker and Docker Compose (for Docker deployment)
 - Git
 - API Keys for:
-  - Google Generative AI (Gemini)
-  - Anthropic (Claude)
-  - Pinecone
-  - Cohere
-  - Neon Database (optional)
-  - GitHub Personal Access Token
+  - Google Generative AI (Gemini) - [Get API Key](https://aistudio.google.com/app/apikey)
+  - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
+  - Pinecone - [Get API Key](https://app.pinecone.io/)
+  - Cohere - [Get API Key](https://dashboard.cohere.ai/api-keys)
+  - Neon Database - [Get API Key](https://console.neon.tech/)
+  - GitHub Personal Access Token (for private repos) - [Create PAT](https://github.com/settings/tokens)
 
-## Installation
+## Installation & Setup
 
-1. **Clone the repository**
+### Option 1: Interactive Setup (Recommended)
+
+```bash
+git clone <repository-url>
+cd code-graph-rag
+./quick-start.sh
+```
+
+### Option 2: Manual Setup
+
+1. **Clone and install**
    ```bash
    git clone <repository-url>
    cd code-graph-rag
-   ```
-
-2. **Install dependencies**
-   ```bash
    npm install
    ```
 
-3. **Set up environment variables**
-   Create a `.env` file with the following variables:
-   ```env
-   GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key
-   ANTHROPIC_API_KEY=your_claude_api_key
-   PINECONE_API_KEY=your_pinecone_api_key
-   COHERE_API_KEY=your_cohere_api_key
-   NEON_API_KEY=your_neon_api_key
-   GITHUB_PAT=your_github_personal_access_token
-   REPO_URI=https://github.com/your-org/your-repo.git
-   HOME=/path/to/home/directory
+2. **Configure environment**
+   ```bash
+   # Copy template and edit with your values
+   cp .env.template .env
+   nano .env
+   
+   # Validate configuration
+   npm run env:validate
    ```
 
-4. **Start the databases**
+3. **Choose deployment method**
+
+   **Local Development:**
    ```bash
-   docker-compose up -d
+   npm run dev
    ```
 
-5. **Build the project**
+   **Docker Development:**
    ```bash
-   npm run build
+   npm run docker:setup
    ```
+
+   **Production:**
+   ```bash
+   npm run prod
+   ```
+
+### Environment Variables
+
+Required variables (must be set):
+- `REPO_URI` - Repository to analyze
+- `GOOGLE_GENERATIVE_AI_API_KEY` - Gemini API key
+- `ANTHROPIC_API_KEY` - Claude API key  
+- `CO_API_KEY` - Cohere API key
+- `PINECONE_API_KEY` - Pinecone API key
+- `NEON_API_KEY` - Neon database API key
+- `HOME` - Home directory path
+
+Optional variables:
+- `GITHUB_PAT` - GitHub Personal Access Token (private repos)
+- `NODE_ENV` - Environment (development/production)
+- `PORT` - Server port (default: 8080)
+- `LOG_LEVEL` - Logging level (default: info)
+
+See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
+
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server with hot reload |
+| `npm run prod` | Start production server |
+| `npm run docker:setup` | Complete Docker environment setup |
+| `npm run docker:start` | Start Docker services |
+| `npm run docker:stop` | Stop Docker services |
+| `npm run docker:logs` | View Docker logs |
+| `npm run env:validate` | Validate environment configuration |
+| `npm run health` | Check application health |
 
 ## Usage
 
@@ -105,15 +184,27 @@ The system uses a hybrid approach combining:
 
 ### Starting the API Server
 
+The server starts automatically with the setup scripts, or manually:
+
 ```bash
+# Development
+npm run dev
+
+# Production  
+npm run prod
+
+# Basic server
 npm run server
 ```
 
-The server will start on port 8080 with the following endpoints:
+The server will start on port 8080 (configurable via `PORT` env var) with the following endpoints:
 
 ### API Endpoints
 
-#### Chat Interface
+#### Health & Status
+- `GET /health` - Application health check
+
+#### Chat Interface  
 - `GET /chat/query/:query_id?description=<query>` - Stream AI responses with tool integration
 
 #### Function Search
@@ -127,6 +218,21 @@ The server will start on port 8080 with the following endpoints:
 
 #### Vector Search
 - `GET /vector?text=<query>` - Direct vector search interface
+
+**Example Health Check:**
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "environment": "development",
+  "port": 8080
+}
+```
 
 ### MCP Integration
 
@@ -220,30 +326,106 @@ npx tsc --watch
 
 ## Troubleshooting
 
-### Common Issues
+### Environment Issues
 
-1. **Database Connection Errors**
-   - Ensure Docker containers are running
-   - Check port availability (5432, 7474, 7687)
+**Missing API Keys:**
+```bash
+# Validate your configuration
+npm run env:validate
 
-2. **API Key Issues**
-   - Verify all required API keys are set
-   - Check API key permissions and quotas
+# Check specific issues
+❌ Missing required environment variables:
+   - GOOGLE_GENERATIVE_AI_API_KEY
+```
+Solution: Set missing variables in `.env` file or environment.
+
+**Invalid Configuration:**
+```bash
+# Use validation script for detailed feedback
+npm run env:validate
+```
+
+### Service Issues
+
+**Database Connection Errors:**
+```bash
+# Check Docker services
+docker-compose ps
+
+# View logs
+npm run docker:logs
+```
+
+**Application Not Starting:**
+```bash
+# Check health
+npm run health
+
+# View detailed logs
+npm run docker:logs
+```
+
+### Common Solutions
+
+1. **Environment Setup**
+   ```bash
+   # Reset environment
+   cp .env.template .env
+   # Edit .env with your values
+   npm run env:validate
+   ```
+
+2. **Docker Issues**
+   ```bash
+   # Restart Docker services
+   npm run docker:stop
+   npm run docker:start
+   
+   # Complete cleanup and restart
+   npm run docker:cleanup
+   npm run docker:setup
+   ```
 
 3. **Memory Issues**
-   - Large repositories may require increased Node.js memory
-   - Use `--max-old-space-size=4096` flag
+   ```bash
+   # Increase Node.js memory
+   NODE_OPTIONS="--max-old-space-size=4096" npm run dev
+   ```
 
-4. **Parsing Errors**
-   - Ensure repository contains valid JavaScript/TypeScript
-   - Check file permissions and access
+4. **Port Conflicts**
+   ```bash
+   # Change port in .env
+   PORT=3000 npm run dev
+   ```
+
+### Getting Help
+
+1. **Check Documentation**
+   - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment configuration
+   - `.env.template` - Configuration template
+   
+2. **Validation Tools**
+   ```bash
+   npm run env:validate  # Validate configuration
+   npm run health        # Check application health
+   ```
+
+3. **Debug Information**  
+   ```bash
+   # Enable debug logging
+   DEBUG=graphsense:* npm run dev
+   
+   # Check service status
+   npm run docker:logs
+   ```
 
 ### Performance Optimization
 
 - Use incremental indexing for large repositories
-- Adjust batch sizes for vector operations
+- Adjust batch sizes for vector operations  
 - Configure database connection pools
 - Monitor API rate limits
+- Use production environment variables for better performance
 
 ## Contributing
 

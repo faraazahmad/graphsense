@@ -1,9 +1,9 @@
-import { anthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
-import { generateText, tool } from 'ai';
+import { anthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
+import { generateText, tool } from "ai";
 
 export async function makeQueryDecision(query: string) {
-    const prompt = `
+  const prompt = `
         You are an expert system architect with deep knowledge of both graph databases (Neo4j) and vector search in relational databases (Postgres with pgvector). Given the following data schemas:
 
     Neo4j Database:
@@ -46,14 +46,19 @@ export async function makeQueryDecision(query: string) {
 
     Generate for this query: "${query}"
     `;
-    const claude = anthropic('claude-3-5-sonnet-latest');
-    const gemini = google('gemini-2.0-flash-lite-preview-02-05');
-    const { text } = await generateText({ model: claude, prompt });
-    return text;
+  const claude = anthropic("claude-3-5-sonnet-latest");
+  const gemini = google("gemini-2.0-flash-lite-preview-02-05");
+  const { text } = await generateText({ model: claude, prompt });
+  return text;
 }
 
-export async function answer(query: string, nodes: any[], relationships: any[], error?: Error) {
-    const prompt = `
+export async function answer(
+  query: string,
+  nodes: any[],
+  relationships: any[],
+  error?: Error,
+) {
+  const prompt = `
         You are a neo4j and systems architecture expert, working with the following database:
 
         Database schema:
@@ -73,19 +78,24 @@ export async function answer(query: string, nodes: any[], relationships: any[], 
         Query: ${query}
     `;
 
-    const googleAI = createGoogleGenerativeAI({
-        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
-    });
-    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    const claude = anthropic('claude-3-5-sonnet-latest');
-    const { text } = await generateText({ model: gemini, prompt });
-    console.log(text)
-    return text;
+  const googleAI = createGoogleGenerativeAI({
+    apiKey: process.env["GOOGLE_GENERATIVE_AI_API_KEY"],
+  });
+  const gemini = googleAI("gemini-2.0-flash-lite-preview-02-05");
+  const claude = anthropic("claude-3-5-sonnet-latest");
+  const { text } = await generateText({ model: gemini, prompt });
+  console.log(text);
+  return text;
 }
 
-export async function plan(query: string, error?: Error, functions?: any[], description?: string) {
-    console.log(query);
-    const systemPrompt = `
+export async function plan(
+  query: string,
+  error?: Error,
+  functions?: any[],
+  description?: string,
+) {
+  console.log(query);
+  const systemPrompt = `
         You are an Cypher expert for a Neo4j database with the following schema and requirements:
 
         Database schema:
@@ -140,23 +150,31 @@ export async function plan(query: string, error?: Error, functions?: any[], desc
         MATCH (caller)-[r]->(callee)
         RETURN caller, r, callee
 
-        ${error ? 'Please avoid this error in the query: ' + error.message : ''}
+        ${error ? "Please avoid this error in the query: " + error.message : ""}
 
-        ${functions?.length && description ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
-        the Cypher query includes these functions.` : ''}
+        ${
+          functions?.length && description
+            ? `After performing a semantic search for ${description}, the following functions were found: ${JSON.stringify(functions)}. Make sure
+        the Cypher query includes these functions.`
+            : ""
+        }
 
         `;
-    const userPrompt = `
+  const userPrompt = `
             Generate a complete, optimized, error-free Cypher query based on the following user prompt: "${query}"
 
             Return only the query code
         `;
 
-    const googleAI = createGoogleGenerativeAI({
-        apiKey: process.env['GOOGLE_GENERATIVE_AI_API_KEY'],
-    });
-    const gemini = googleAI('gemini-2.0-flash-lite-preview-02-05');
-    const claude = anthropic('claude-3-5-sonnet-latest');
-    const { text } = await generateText({ model: gemini, system: systemPrompt, prompt: userPrompt });
-    return text;
+  const googleAI = createGoogleGenerativeAI({
+    apiKey: process.env["GOOGLE_GENERATIVE_AI_API_KEY"],
+  });
+  const gemini = googleAI("gemini-2.0-flash-lite-preview-02-05");
+  const claude = anthropic("claude-3-5-sonnet-latest");
+  const { text } = await generateText({
+    model: gemini,
+    system: systemPrompt,
+    prompt: userPrompt,
+  });
+  return text;
 }

@@ -14,7 +14,7 @@ import { setTimeout } from "node:timers";
 
 export async function parseFunctionDeclaration(
   node: FunctionDeclaration,
-  reParse = false,
+  reParse = true,
 ) {
   const callSet = new Set<string>();
   // Recursively visit each child to capture function calls from this node
@@ -41,46 +41,45 @@ export async function parseFunctionDeclaration(
       name: node.name?.escapedText,
     },
   );
+  forEachChild(node, (child: Node) => extractFunctionCalls(node, child));
 
   try {
-    const functionId = result.records.map((rec) => rec.get("id"));
+    const id = result.records.map((rec) => rec.get("id"));
     const sourceFile = node.getSourceFile();
+
+    console.log(`Updating ${node.name?.escapedText}() in DB.`);
+    const name = node.name?.escapedText;
+    const path = cleanPath(sourceFile.fileName);
+    const start_line =
+      sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+    const end_line =
+      sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
 
     await db.relational.client!.query(
       `
         INSERT INTO functions (id, name, path, start_line, end_line, parsed)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         path = EXCLUDED.path,
         start_line = EXCLUDED.start_line,
         end_line = EXCLUDED.end_line,
-        parsed = EXCLUDED.parsed,
+        parsed = EXCLUDED.parsed
       `,
-      [
-        functionId,
-        node.name?.escapedText,
-        cleanPath(sourceFile.fileName),
-        sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
-        sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
-        new Date(),
-      ],
+      [id[0], name, path, start_line, end_line, new Date()],
     );
-    // const fxn = await db.relational.client!.query(
-    //   `select id from functions where id = $1 limit 1`,
-    //   [fileId[0]],
-    // );
-    // if (fxn.rows.length === 0) {
-    //   console.log(
-    //     `[${new Date().toUTCString()}]: Pushed function ${node.name?.escapedText} to processing queue`,
-    //   );
-    //   functionParseQueue.push({ node, functionNodeId: fileId[0], reParse });
-    // }
+
+    await processFunctionWithAI({
+      id: id[0],
+      name,
+      path,
+      start_line,
+      end_line,
+    });
   } catch (err: any) {
-    console.error(err.message);
+    console.error(`Error parsing ${node.name?.escapedText}(): ${err.message}`);
     return;
   }
-  forEachChild(node, (child: Node) => extractFunctionCalls(node, child));
 
   if (!Array.from(callSet).length) {
     return;
@@ -94,8 +93,9 @@ export async function parseFunctionDeclaration(
 
 export async function processFunctionWithAI(functionData: any) {
   const { id: functionNodeId, name, path, start_line, end_line } = functionData;
-
-  console.log(`[${new Date().toUTCString()}]: Started parsing ${name}`);
+  console.log(
+    `[${new Date().toUTCString()}]: Started parsing ${name}() with AI`,
+  );
 
   let functionText = "";
   try {

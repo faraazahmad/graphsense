@@ -21,9 +21,6 @@ export const pc = new Pinecone({
 const index = pc.index("llama-text-embed-v2-index");
 export const vectorNamespace = index.namespace(REPO_PATH);
 
-// Create a driver instance
-export let driver: Driver;
-
 export async function executeQuery(query: string, variables: Object) {
   const session = db.graph.client!.session();
   const result = await session.run(query, variables);
@@ -79,11 +76,11 @@ export async function setupDB(
   );
 
   // Connect to local PostgreSQL
-  const connectionString = process.env.POSTGRES_URL || 
-    `postgresql://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'postgres'}@${process.env.POSTGRES_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || 'graphsense'}`;
-  
-  db.relational.client = new Client(connectionString);
+  const connectionString =
+    process.env.POSTGRES_URL ||
+    `postgresql://${process.env.POSTGRES_USER || "postgres"}:${process.env.POSTGRES_PASSWORD || "postgres"}@${process.env.POSTGRES_HOST || "localhost"}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || "graphsense"}`;
 
+  db.relational.client = new Client(connectionString);
   db.relational.client!.connect();
 
   await db.relational.client!.query("CREATE EXTENSION IF NOT EXISTS vector");

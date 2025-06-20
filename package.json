@@ -12,7 +12,8 @@
     "docker:cleanup": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh cleanup",
     "env:check": "node scripts/validate-env.js",
     "env:validate": "node scripts/validate-env.js",
-    "health": "curl -f http://localhost:${PORT:-8080}/health || echo 'Service not running'"
+    "health": "curl -f http://localhost:${PORT:-8080}/health || echo 'Service not running'",
+    "watch": "npm run build && node build/watcher.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.10",

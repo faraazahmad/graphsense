@@ -103,36 +103,38 @@ function traverseNodes(filePath: string, node: Node): void | ImportData[] {
     if (!functionNode.name?.escapedText) {
       return;
     }
-    executeQuery(
-      `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
-      {
-        path: cleanPath(node.getSourceFile().fileName),
-        name: functionNode.name?.escapedText,
-      },
-    )
-      .then(async (result) => {
-        const fileId = result.records.map((rec) => rec.get("id"));
-        const fxn = await db.relational.client!.query(
-          `select id from functions where id = $1 limit 1`,
-          [fileId[0]],
-        );
-        if (fxn.rows.length) {
-          return;
-        }
 
-        parseFunctionDeclaration(functionNode, false);
-      })
-      .catch((err) => {
-        console.log(functionNode.name?.escapedText);
-        console.log(functionNode.getSourceFile().fileName);
-        console.error(err);
-        process.exit(-1);
-      });
+    parseFunctionDeclaration(functionNode, false);
+    // executeQuery(
+    //   `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
+    //   {
+    //     path: cleanPath(node.getSourceFile().fileName),
+    //     name: functionNode.name?.escapedText,
+    //   },
+    // )
+    //   .then(async (result) => {
+    //     const fileId = result.records.map((rec) => rec.get("id"));
+    //     const fxn = await db.relational.client!.query(
+    //       `select id from functions where id = $1 limit 1`,
+    //       [fileId[0]],
+    //     );
+    //     if (fxn.rows.length) {
+    //       return;
+    //     }
+
+    //     parseFunctionDeclaration(functionNode, false);
+    //   })
+    //   .catch((err) => {
+    //     console.log(functionNode.name?.escapedText);
+    //     console.log(functionNode.getSourceFile().fileName);
+    //     console.error(err);
+    //     process.exit(-1);
+    //   });
   }
   return result;
 }
 
-async function parseFile(path: string) {
+export async function parseFile(path: string) {
   let results: ImportData[] = [];
   if (!(path[0] === "/")) {
     return results;
@@ -212,7 +214,7 @@ export function cleanPath(path: string) {
   return path.replace(repoPath, "");
 }
 
-async function useRepo(): Promise<PrePassResultDTO> {
+export async function useRepo(): Promise<PrePassResultDTO> {
   // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
   /*
   const isHttpUrl =
@@ -278,36 +280,6 @@ async function useRepo(): Promise<PrePassResultDTO> {
   });
 }
 
-// export async function prePass(): Promise<string> {
-//   console.log("Starting prepass");
-//   const { branch, path } = await useRepo();
-//   await setupDB(branch);
-
-//   return Promise.resolve(path);
-// }
-
-// async function passOne() {
-//   console.log("Starting pass one");
-//   const repoPath = getRepoPath();
-//   const fileList = globSync(`${repoPath}/**/**/*.js`, {
-//     absolute: true,
-//     ignore: ["**/node_modules/**"],
-//   });
-
-//   fileList.forEach(parseFile);
-
-//   return Promise.resolve();
-// }
-
-// async function passTwo() {
-//   console.log("Starting pass two");
-//   setInterval(() => {
-//     parseTopFunctionNode();
-//   }, 5 * 1000);
-
-//   return Promise.resolve();
-// }
-
 async function main() {
   try {
     console.log("Starting code analysis...");
@@ -324,7 +296,6 @@ async function main() {
 
     console.log(`Found ${fileList.length} JavaScript files to analyze`);
 
-    // First pass: parse files and extract functions
     console.log("Starting file parsing...");
     let processedFiles = 0;
     for (const file of fileList) {
@@ -336,29 +307,6 @@ async function main() {
       }
     }
     console.log(`Completed parsing ${processedFiles} files`);
-
-    // Second pass: get all functions from database and process with AI
-    console.log("Starting AI processing of functions...");
-    try {
-      const result = await db.relational.client!.query(
-        `SELECT id, name, path, start_line, end_line FROM functions`,
-      );
-
-      console.log(`Found ${result.rows.length} functions to process with AI`);
-
-      if (result.rows.length === 0) {
-        console.log("No functions need AI processing");
-        return;
-      }
-
-      await Promise.all(result.rows.map(processFunctionWithAI));
-
-      console.log(`Completed AI processing of ${result.rowCount} functions`);
-    } catch (error) {
-      console.error("Error querying functions from database:", error);
-    }
-
-    console.log("Code analysis completed successfully!");
     process.exit(0);
   } catch (error) {
     console.error("Fatal error in main function:", error);

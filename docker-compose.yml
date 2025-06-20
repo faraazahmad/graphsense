@@ -1,6 +1,27 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: graphsense-postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-graphsense}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    networks:
+      - graphsense-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-graphsense}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   neo4j:
     image: neo4j:latest
     container_name: graphsense-neo4j
@@ -54,13 +75,20 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CO_API_KEY=${CO_API_KEY}
       - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - NEON_API_KEY=${NEON_API_KEY}
 
       # Application Configuration
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=8080
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - INDEX_FROM_SCRATCH=${INDEX_FROM_SCRATCH:-false}
+
+      # PostgreSQL Configuration
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-graphsense}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-graphsense}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
 
       # Neo4j Configuration
       - NEO4J_URI=bolt://neo4j:7687
@@ -79,6 +107,8 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${REPO_PATH}:/home/repo:ro
     depends_on:
+      postgres:
+        condition: service_healthy
       neo4j:
         condition: service_healthy
     restart: unless-stopped
@@ -96,6 +126,8 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
+    name: graphsense_postgres_data
   neo4j_data:
     name: graphsense_neo4j_data
   neo4j_logs:

@@ -49,7 +49,6 @@ check_env_file() {
             echo -e "   - ANTHROPIC_API_KEY"
             echo -e "   - CO_API_KEY"
             echo -e "   - PINECONE_API_KEY"
-            echo -e "   - NEON_API_KEY"
             echo -e "   - GITHUB_PAT (if using private repositories)"
             echo
             read -p "Press Enter to continue after editing .env file, or Ctrl+C to exit..."
@@ -104,7 +103,7 @@ start_services() {
     echo -e "${BLUE}🚀 Starting Docker services...${NC}"
 
     # Start all services
-    docker-compose up -d --remove-orphans
+    docker-compose up -d
 
     echo -e "${GREEN}✅ Docker services started${NC}"
     echo
@@ -127,7 +126,7 @@ check_health() {
 
     # Wait for application to be ready
     echo -e "${YELLOW}⏳ Waiting for application to be ready...${NC}"
-    timeout 60 bash -c 'until curl -f http://localhost:${PORT:-8080}/health 2>/dev/null; do sleep 2; done' || {
+    curl -f http://localhost:${PORT:-8080}/health || {
         echo -e "${RED}❌ Application failed to start within 60 seconds${NC}"
         echo -e "${YELLOW}💡 Check logs: docker-compose logs app${NC}"
         exit 1

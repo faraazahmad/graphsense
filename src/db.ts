@@ -4,7 +4,6 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import { Client } from "pg";
 import {
   getRepoQualifier,
-  NEON_API_KEY,
   REPO_PATH,
   REPO_URI,
   PINECONE_API_KEY,
@@ -12,7 +11,6 @@ import {
   NEO4J_USERNAME,
   NEO4J_PASSWORD,
 } from "./env";
-import { NeonToolkit } from "@neondatabase/toolkit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -36,7 +34,6 @@ export async function executeQuery(query: string, variables: Object) {
 
 interface DBData {
   relational: {
-    projectId: string;
     client?: Client;
   };
   graph: {
@@ -45,7 +42,6 @@ interface DBData {
 }
 export const db: DBData = {
   relational: {
-    projectId: "",
     client: undefined,
   },
   graph: {
@@ -82,35 +78,11 @@ export async function setupDB(
     {},
   );
 
-  const toolkit = new NeonToolkit(NEON_API_KEY);
-
-  const projectName = getRepoQualifier(REPO_URI);
-  const listProjectResponse = await toolkit.apiClient.listProjects({
-    search: projectName,
-  });
-
-  if (listProjectResponse.data.projects.length === 1) {
-    db.relational.projectId = listProjectResponse.data.projects[0].id;
-  } else {
-    const createProjectResponse = await toolkit.apiClient.createProject({
-      project: {
-        name: projectName,
-        branch: {
-          name: defaultBranch,
-          database_name: defaultBranch,
-          role_name: "owner",
-        },
-      },
-    });
-    db.relational.projectId = createProjectResponse.data.project.id;
-  }
-
-  const connURIResponse = await toolkit.apiClient.getConnectionUri({
-    database_name: defaultBranch,
-    projectId: db.relational.projectId,
-    role_name: "owner",
-  });
-  db.relational.client = new Client(connURIResponse.data.uri);
+  // Connect to local PostgreSQL
+  const connectionString = process.env.POSTGRES_URL || 
+    `postgresql://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'postgres'}@${process.env.POSTGRES_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || 'graphsense'}`;
+  
+  db.relational.client = new Client(connectionString);
 
   db.relational.client!.connect();
 

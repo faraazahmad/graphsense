@@ -34,7 +34,6 @@ function validateRequiredEnvVars(): void {
   const requiredVars = [
     "REPO_URI",
     "HOME",
-    "NEON_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "ANTHROPIC_API_KEY",
     "PINECONE_API_KEY",

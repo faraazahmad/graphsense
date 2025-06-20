@@ -137,21 +137,7 @@ const requiredVars = [
       return null;
     }
   },
-  {
-    name: 'NEON_API_KEY',
-    description: 'Neon database API key',
-    example: 'napi_...',
-    validator: (value) => {
-      if (!value) return 'Value is required';
-      if (!value.startsWith('napi_')) {
-        return 'Should start with "napi_"';
-      }
-      if (value.length < 40) {
-        return 'Seems too short for a valid API key';
-      }
-      return null;
-    }
-  }
+
 ];
 
 // Optional environment variables with defaults

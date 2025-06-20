@@ -50,7 +50,6 @@ required_vars=(
     "ANTHROPIC_API_KEY"
     "PINECONE_API_KEY"
     "CO_API_KEY"
-    "NEON_API_KEY"
 )
 
 missing_vars=()

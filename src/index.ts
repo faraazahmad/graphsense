@@ -10,7 +10,8 @@ import {
   isStringLiteral,
 } from "typescript";
 import { dirname, resolve } from "node:path";
-import { globSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { globSync } from 'glob';
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";

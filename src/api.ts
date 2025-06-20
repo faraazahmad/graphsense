@@ -13,7 +13,6 @@ import type { Hit } from "@pinecone-database/pinecone/dist/pinecone-generated-ts
 import { z } from "zod";
 import { globSync } from "fs";
 import { CohereClient } from "cohere-ai";
-import { prePass } from ".";
 import {
   claude,
   gemini,
@@ -533,25 +532,18 @@ fastify.get("/health", async (request, reply) => {
 });
 
 if (require.main === module) {
-  prePass()
-    .then(() => {
-      fastify.listen(
-        {
-          port: SERVICE_PORT,
-          host: "0.0.0.0",
-        },
-        (err, address) => {
-          if (err) {
-            fastify.log.error(err);
-            process.exit(1);
-          }
-          console.log(`🚀 Server listening at ${address}`);
-          console.log(`📊 Health check available at ${address}/health`);
-        },
-      );
-    })
-    .catch((err) => {
-      fastify.log.error(err);
-      process.exit(1);
-    });
+  fastify.listen(
+    {
+      port: SERVICE_PORT,
+      host: "0.0.0.0",
+    },
+    (err, address) => {
+      if (err) {
+        fastify.log.error(err);
+        process.exit(1);
+      }
+      console.log(`🚀 Server listening at ${address}`);
+      console.log(`📊 Health check available at ${address}/health`);
+    },
+  );
 }

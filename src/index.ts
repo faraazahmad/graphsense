@@ -23,9 +23,13 @@ interface FunctionParseDTO {
   reParse: boolean;
 }
 
+interface PrePassResultDTO {
+  branch: string;
+  path: string;
+}
+
 let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
-const rootPath = getRepoPath();
 
 interface ImportData {
   clause: string;
@@ -37,31 +41,7 @@ interface PrePassResultDTO {
   path: string;
 }
 
-function parseFile(path: string, results: ImportData[]): ImportData[] {
-  let content;
-  try {
-    content = readFileSync(path, "utf-8");
-  } catch (error: any) {
-    console.error(`${error.message} in ${path}`);
-  }
-  const sourceFile = createSourceFile(
-    path,
-    content!,
-    ScriptTarget.ES2020,
-    true,
-  );
-
-  forEachChild(sourceFile, (child) => {
-    const result = traverse(path, child);
-    if (result) {
-      results = [...results, ...result];
-    }
-  });
-
-  return results;
-}
-
-function traverse(filePath: string, node: Node): void | ImportData[] {
+function traverseNodes(filePath: string, node: Node): void | ImportData[] {
   if (node.getChildCount() === 0) {
     return [];
   }
@@ -152,13 +132,33 @@ function traverse(filePath: string, node: Node): void | ImportData[] {
   return result;
 }
 
-async function registerFile(path: string) {
+async function parseFile(path: string) {
   let results: ImportData[] = [];
   if (!(path[0] === "/")) {
     return results;
   }
 
-  results = parseFile(path, []);
+  let content;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch (error: any) {
+    console.error(`${error.message} in ${path}`);
+  }
+  const sourceFile = createSourceFile(
+    path,
+    content!,
+    ScriptTarget.ES2020,
+    true,
+  );
+
+  forEachChild(sourceFile, (child) => {
+    const nodeResults = traverseNodes(path, child);
+    if (nodeResults) {
+      for (const result of nodeResults) {
+        results.push(result);
+      }
+    }
+  });
 
   for (const result of results) {
     await executeQuery(
@@ -184,50 +184,32 @@ async function registerFile(path: string) {
   return results;
 }
 
-function getRepoPath(): string {
+export function getRepoPath(): string {
   if (NODE_ENV === "development") {
     if (process.argv[2]) {
       const cmdArgPath = process.argv[2];
       if (!existsSync(cmdArgPath)) {
         console.error(
-          `❌ Command line argument path does not exist: ${cmdArgPath}`,
+          `Command line argument path does not exist: ${cmdArgPath}`,
         );
         process.exit(1);
       }
-      console.log(
-        `🔧 Development mode: Using command line argument path: ${cmdArgPath}`,
-      );
       return cmdArgPath;
     } else {
       console.log(
-        `💡 Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
+        `Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
       );
-      console.log(`📁 Falling back to default repository path: ${REPO_PATH}`);
+      console.log(`Falling back to default repository path: ${REPO_PATH}`);
     }
   } else {
-    console.log(`📁 Using default repository path: ${REPO_PATH}`);
+    console.log(`Using default repository path: ${REPO_PATH}`);
   }
   return REPO_PATH;
 }
 
 export function cleanPath(path: string) {
-  return path.replace(rootPath, "");
-}
-
-async function parseTopFunctionNode() {
-  const functionParseArg = functionParseQueue[parseIndex];
-  parseIndex += 1;
-  if (!functionParseArg) {
-    return;
-  }
-
-  const { node, functionNodeId, reParse } = functionParseArg;
-  try {
-    await processFunctionWithAI(node, functionNodeId, reParse);
-  } catch (err: any) {
-    console.error(err);
-    return;
-  }
+  const repoPath = getRepoPath();
+  return path.replace(repoPath, "");
 }
 
 async function useRepo(): Promise<PrePassResultDTO> {
@@ -283,17 +265,6 @@ async function useRepo(): Promise<PrePassResultDTO> {
   const repoPath = getRepoPath();
   console.log(`Using repository at ${repoPath}`);
 
-  // List repository contents
-  try {
-    const lsOutput = execSync(`ls -la ${repoPath}`, {
-      encoding: "utf8",
-    });
-    console.log("Repository contents:");
-    console.log(lsOutput);
-  } catch (error) {
-    console.error("Failed to list repository contents:", error);
-  }
-
   // const defaultBranch = execSync(
   //   `git -C ${repoPath} rev-parse --abbrev-ref HEAD`,
   //   {
@@ -307,40 +278,92 @@ async function useRepo(): Promise<PrePassResultDTO> {
   });
 }
 
-export async function prePass(): Promise<string> {
-  console.log("Starting prepass");
-  const { branch, path } = await useRepo();
-  await setupDB(branch);
+// export async function prePass(): Promise<string> {
+//   console.log("Starting prepass");
+//   const { branch, path } = await useRepo();
+//   await setupDB(branch);
 
-  return Promise.resolve(path);
-}
+//   return Promise.resolve(path);
+// }
 
-async function passOne() {
-  console.log("Starting pass one");
-  const repoPath = getRepoPath();
-  const fileList = globSync(`${repoPath}/**/**/*.js`, {
-    absolute: true,
-    ignore: ["**/node_modules/**"],
-  });
+// async function passOne() {
+//   console.log("Starting pass one");
+//   const repoPath = getRepoPath();
+//   const fileList = globSync(`${repoPath}/**/**/*.js`, {
+//     absolute: true,
+//     ignore: ["**/node_modules/**"],
+//   });
 
-  fileList.forEach(registerFile);
+//   fileList.forEach(parseFile);
 
-  return Promise.resolve();
-}
+//   return Promise.resolve();
+// }
 
-async function passTwo() {
-  console.log("Starting pass two");
-  setInterval(() => {
-    parseTopFunctionNode();
-  }, 5 * 1000);
+// async function passTwo() {
+//   console.log("Starting pass two");
+//   setInterval(() => {
+//     parseTopFunctionNode();
+//   }, 5 * 1000);
 
-  return Promise.resolve();
-}
+//   return Promise.resolve();
+// }
 
 async function main() {
-  await prePass();
-  await passOne();
-  await passTwo();
+  try {
+    console.log("Starting code analysis...");
+
+    const { branch, path } = await useRepo();
+    console.log(`Setting up database for branch: ${branch}`);
+    await setupDB(branch);
+
+    const repoPath = getRepoPath();
+    const fileList = globSync(`${repoPath}/**/**/*.js`, {
+      absolute: true,
+      ignore: ["**/node_modules/**"],
+    });
+
+    console.log(`Found ${fileList.length} JavaScript files to analyze`);
+
+    // First pass: parse files and extract functions
+    console.log("Starting file parsing...");
+    let processedFiles = 0;
+    for (const file of fileList) {
+      try {
+        await parseFile(file);
+        processedFiles++;
+      } catch (error) {
+        console.error(`Error parsing file ${file}:`, error);
+      }
+    }
+    console.log(`Completed parsing ${processedFiles} files`);
+
+    // Second pass: get all functions from database and process with AI
+    console.log("Starting AI processing of functions...");
+    try {
+      const result = await db.relational.client!.query(
+        `SELECT id, name, path, start_line, end_line FROM functions`,
+      );
+
+      console.log(`Found ${result.rows.length} functions to process with AI`);
+
+      if (result.rows.length === 0) {
+        console.log("No functions need AI processing");
+        return;
+      }
+
+      await Promise.all(result.rows.map(processFunctionWithAI));
+
+      console.log(`Completed AI processing of ${result.rowCount} functions`);
+    } catch (error) {
+      console.error("Error querying functions from database:", error);
+    }
+
+    console.log("Code analysis completed successfully!");
+    process.exit(0);
+  } catch (error) {
+    console.error("Fatal error in main function:", error);
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {

@@ -11,11 +11,11 @@ import {
 } from "typescript";
 import { dirname, resolve } from "node:path";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
-import { globSync } from 'glob';
+import { globSync } from "glob";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI } from "./env";
+import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI, NODE_ENV } from "./env";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -25,15 +25,31 @@ interface FunctionParseDTO {
 
 let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
+const rootPath = getRepoPath();
 
 interface ImportData {
   clause: string;
   source: string;
 }
 
+interface PrePassResultDTO {
+  branch: string;
+  path: string;
+}
+
 function parseFile(path: string, results: ImportData[]): ImportData[] {
-  const content = readFileSync(path, "utf-8");
-  const sourceFile = createSourceFile(path, content, ScriptTarget.ES2020, true);
+  let content;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch (error: any) {
+    console.error(`${error.message} in ${path}`);
+  }
+  const sourceFile = createSourceFile(
+    path,
+    content!,
+    ScriptTarget.ES2020,
+    true,
+  );
 
   forEachChild(sourceFile, (child) => {
     const result = traverse(path, child);
@@ -168,9 +184,34 @@ async function registerFile(path: string) {
   return results;
 }
 
+function getRepoPath(): string {
+  if (NODE_ENV === "development") {
+    if (process.argv[2]) {
+      const cmdArgPath = process.argv[2];
+      if (!existsSync(cmdArgPath)) {
+        console.error(
+          `❌ Command line argument path does not exist: ${cmdArgPath}`,
+        );
+        process.exit(1);
+      }
+      console.log(
+        `🔧 Development mode: Using command line argument path: ${cmdArgPath}`,
+      );
+      return cmdArgPath;
+    } else {
+      console.log(
+        `💡 Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
+      );
+      console.log(`📁 Falling back to default repository path: ${REPO_PATH}`);
+    }
+  } else {
+    console.log(`📁 Using default repository path: ${REPO_PATH}`);
+  }
+  return REPO_PATH;
+}
+
 export function cleanPath(path: string) {
-  const repoPath = REPO_PATH;
-  return path.replace(repoPath, "");
+  return path.replace(rootPath, "");
 }
 
 async function parseTopFunctionNode() {
@@ -189,7 +230,7 @@ async function parseTopFunctionNode() {
   }
 }
 
-async function useRepo(): Promise<string> {
+async function useRepo(): Promise<PrePassResultDTO> {
   // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
   /*
   const isHttpUrl =
@@ -238,8 +279,8 @@ async function useRepo(): Promise<string> {
   }
   */
 
-  // Use the repository path from environment variable
-  const repoPath = REPO_PATH;
+  // Use the repository path from environment variable or command line arg
+  const repoPath = getRepoPath();
   console.log(`Using repository at ${repoPath}`);
 
   // List repository contents
@@ -260,21 +301,27 @@ async function useRepo(): Promise<string> {
   //   },
   // ).trim();
 
-  return Promise.resolve('main');
+  return Promise.resolve({
+    branch: "main",
+    path: repoPath,
+  });
 }
 
-export async function prePass() {
+export async function prePass(): Promise<string> {
   console.log("Starting prepass");
-  const defaultBranch = await useRepo();
-  await setupDB(defaultBranch || "main");
+  const { branch, path } = await useRepo();
+  await setupDB(branch);
 
-  return Promise.resolve();
+  return Promise.resolve(path);
 }
 
 async function passOne() {
   console.log("Starting pass one");
-  const repoPath = REPO_PATH;
-  const fileList = globSync(`${repoPath}/**/**/*.js`);
+  const repoPath = getRepoPath();
+  const fileList = globSync(`${repoPath}/**/**/*.js`, {
+    absolute: true,
+    ignore: ["**/node_modules/**"],
+  });
 
   fileList.forEach(registerFile);
 

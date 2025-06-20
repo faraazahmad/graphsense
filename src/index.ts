@@ -10,11 +10,12 @@ import {
   isStringLiteral,
 } from "typescript";
 import { dirname, resolve } from "node:path";
-import { globSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { globSync } from "glob";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI } from "./env";
+import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI, NODE_ENV } from "./env";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -24,15 +25,31 @@ interface FunctionParseDTO {
 
 let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
+const rootPath = getRepoPath();
 
 interface ImportData {
   clause: string;
   source: string;
 }
 
+interface PrePassResultDTO {
+  branch: string;
+  path: string;
+}
+
 function parseFile(path: string, results: ImportData[]): ImportData[] {
-  const content = readFileSync(path, "utf-8");
-  const sourceFile = createSourceFile(path, content, ScriptTarget.ES2020, true);
+  let content;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch (error: any) {
+    console.error(`${error.message} in ${path}`);
+  }
+  const sourceFile = createSourceFile(
+    path,
+    content!,
+    ScriptTarget.ES2020,
+    true,
+  );
 
   forEachChild(sourceFile, (child) => {
     const result = traverse(path, child);
@@ -146,15 +163,15 @@ async function registerFile(path: string) {
   for (const result of results) {
     await executeQuery(
       `
-          MERGE (file: File {path: $path})
+        MERGE (file: File {path: $path})
       `,
       { path: cleanPath(result.source) },
     ).catch((err) => console.error(err));
 
     await executeQuery(
       `
-         match (file1:File { path: $source }), (file2:File { path: $path })
-         merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
+        match (file1:File { path: $source }), (file2:File { path: $path })
+        merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
       `,
       {
         source: cleanPath(path),
@@ -167,8 +184,34 @@ async function registerFile(path: string) {
   return results;
 }
 
+function getRepoPath(): string {
+  if (NODE_ENV === "development") {
+    if (process.argv[2]) {
+      const cmdArgPath = process.argv[2];
+      if (!existsSync(cmdArgPath)) {
+        console.error(
+          `❌ Command line argument path does not exist: ${cmdArgPath}`,
+        );
+        process.exit(1);
+      }
+      console.log(
+        `🔧 Development mode: Using command line argument path: ${cmdArgPath}`,
+      );
+      return cmdArgPath;
+    } else {
+      console.log(
+        `💡 Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
+      );
+      console.log(`📁 Falling back to default repository path: ${REPO_PATH}`);
+    }
+  } else {
+    console.log(`📁 Using default repository path: ${REPO_PATH}`);
+  }
+  return REPO_PATH;
+}
+
 export function cleanPath(path: string) {
-  return path.replace(REPO_PATH, "");
+  return path.replace(rootPath, "");
 }
 
 async function parseTopFunctionNode() {
@@ -187,10 +230,13 @@ async function parseTopFunctionNode() {
   }
 }
 
-async function cloneRepo(): Promise<string> {
+async function useRepo(): Promise<PrePassResultDTO> {
+  // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
+  /*
   const isHttpUrl =
     REPO_URI.startsWith("http://") || REPO_URI.startsWith("https://");
   const isSshUrl = REPO_URI.startsWith("git@");
+  const isLocalPath = !isHttpUrl && !isSshUrl && existsSync(REPO_URI);
 
   if (isHttpUrl || isSshUrl) {
     let org: string, repoName: string, cloneUrl: string;
@@ -228,28 +274,54 @@ async function cloneRepo(): Promise<string> {
         stdio: "inherit",
       });
     }
+  } else if (isLocalPath) {
+    console.log(`Using local repository at ${REPO_URI}`);
   }
-  const defaultBranch = execSync(
-    `git -C ${REPO_PATH} rev-parse --abbrev-ref HEAD`,
-    {
-      encoding: "utf8",
-    },
-  ).trim();
+  */
 
-  return Promise.resolve(defaultBranch);
+  // Use the repository path from environment variable or command line arg
+  const repoPath = getRepoPath();
+  console.log(`Using repository at ${repoPath}`);
+
+  // List repository contents
+  try {
+    const lsOutput = execSync(`ls -la ${repoPath}`, {
+      encoding: "utf8",
+    });
+    console.log("Repository contents:");
+    console.log(lsOutput);
+  } catch (error) {
+    console.error("Failed to list repository contents:", error);
+  }
+
+  // const defaultBranch = execSync(
+  //   `git -C ${repoPath} rev-parse --abbrev-ref HEAD`,
+  //   {
+  //     encoding: "utf8",
+  //   },
+  // ).trim();
+
+  return Promise.resolve({
+    branch: "main",
+    path: repoPath,
+  });
 }
 
-export async function prePass() {
+export async function prePass(): Promise<string> {
   console.log("Starting prepass");
-  const defaultBranch = await cloneRepo();
-  await setupDB(defaultBranch);
+  const { branch, path } = await useRepo();
+  await setupDB(branch);
 
-  return Promise.resolve();
+  return Promise.resolve(path);
 }
 
 async function passOne() {
   console.log("Starting pass one");
-  const fileList = globSync(`${REPO_PATH}/**/**/*.js`);
+  const repoPath = getRepoPath();
+  const fileList = globSync(`${repoPath}/**/**/*.js`, {
+    absolute: true,
+    ignore: ["**/node_modules/**"],
+  });
 
   fileList.forEach(registerFile);
 
@@ -265,14 +337,10 @@ async function passTwo() {
   return Promise.resolve();
 }
 
-// async function endIndexing() {
-//     driver.close();
-//     pgClient.end();
-//     return Promise.resolve();
-// }
-
 async function main() {
-  prePass().then(passOne).then(passTwo);
+  await prePass();
+  await passOne();
+  await passTwo();
 }
 
 if (require.main === module) {

@@ -4,17 +4,18 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import { Client } from "pg";
 import {
   getRepoQualifier,
-  INDEX_FROM_SCRATCH,
-  NEON_API_KEY,
   REPO_PATH,
   REPO_URI,
+  PINECONE_API_KEY,
+  NEO4J_URI,
+  NEO4J_USERNAME,
+  NEO4J_PASSWORD,
 } from "./env";
-import { NeonToolkit } from "@neondatabase/toolkit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const pc = new Pinecone({
-  apiKey: process.env["PINECONE_API_KEY"] as string,
+  apiKey: PINECONE_API_KEY,
 });
 
 const index = pc.index("llama-text-embed-v2-index");
@@ -33,7 +34,6 @@ export async function executeQuery(query: string, variables: Object) {
 
 interface DBData {
   relational: {
-    projectId: string;
     client?: Client;
   };
   graph: {
@@ -42,7 +42,6 @@ interface DBData {
 }
 export const db: DBData = {
   relational: {
-    projectId: "",
     client: undefined,
   },
   graph: {
@@ -50,10 +49,15 @@ export const db: DBData = {
   },
 };
 
-const toolkit = new NeonToolkit(NEON_API_KEY);
+export async function setupDB(
+  defaultBranch: string = "main",
+  from_scratch: boolean = false,
+) {
+  const auth = NEO4J_PASSWORD
+    ? neo4j.auth.basic(NEO4J_USERNAME, NEO4J_PASSWORD)
+    : undefined;
 
-export async function setupDB(defaultBranch: string, from_scratch: boolean = false) {
-  db.graph.client = neo4j.driver("bolt://localhost:7687");
+  db.graph.client = neo4j.driver(NEO4J_URI, auth);
 
   // Create neo4j constraints
   await executeQuery(
@@ -74,58 +78,33 @@ export async function setupDB(defaultBranch: string, from_scratch: boolean = fal
     {},
   );
 
-  // const projectName = getRepoQualifier(REPO_URI);
-  // const listProjectResponse = await toolkit.apiClient.listProjects({
-  //   search: projectName,
-  // });
+  // Connect to local PostgreSQL
+  const connectionString = process.env.POSTGRES_URL || 
+    `postgresql://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'postgres'}@${process.env.POSTGRES_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || 'graphsense'}`;
+  
+  db.relational.client = new Client(connectionString);
 
-  // if (listProjectResponse.data.projects.length === 1) {
-  //   db.relational.projectId = listProjectResponse.data.projects[0].id;
-  // } else {
-  //   const createProjectResponse = await toolkit.apiClient.createProject({
-  //     project: {
-  //       name: projectName,
-  //       branch: {
-  //         name: defaultBranch,
-  //         database_name: defaultBranch,
-  //         role_name: "owner",
-  //       },
-  //     },
-  //   });
-  //   db.relational.projectId = createProjectResponse.data.project.id;
-  // }
-
-  // const connURIResponse = await toolkit.apiClient.getConnectionUri({
-  //   database_name: defaultBranch,
-  //   projectId: db.relational.projectId,
-  //   role_name: "owner",
-  // });
-  // db.relational.client = new Client(connURIResponse.data.uri);
-  db.relational.client = new Client(
-    "http://user:password@localhost:5432/admin-api",
-  );
   db.relational.client!.connect();
 
-  if (INDEX_FROM_SCRATCH) {
-    console.log("Indexing from scratch");
-
-    console.log("Deleting all nodes from Neo4j");
-    await executeQuery(`MATCH (n) DETACH DELETE n;`, {});
-
-    console.log("Dropping functions table from pg");
-    await db.relational.client!.query("drop table if exists functions;");
-  }
-
+  await db.relational.client!.query("CREATE EXTENSION IF NOT EXISTS vector");
   const pgSchema = readFileSync(
     resolve(`${__dirname}/../db/schema.sql`),
   ).toString();
-  const result = await db.relational.client!.query(pgSchema);
 
-  return Promise.resolve(result.rows);
+  let result;
+  try {
+    result = await db.relational.client!.query(pgSchema);
+  } catch (error) {
+    console.log("there was an error");
+    console.error(error);
+  }
+  console.log(result);
+
+  return Promise.resolve(result!.rows);
 }
 
 if (require.main === module) {
-  setupDB("main")
+  setupDB()
     .then((res) => console.log(res))
     .catch((err) => console.error(err));
 }

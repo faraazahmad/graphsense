@@ -8,22 +8,27 @@ import neo4j, { Record, Node, Relationship } from "neo4j-driver";
 import { makeQueryDecision, plan } from "./planner";
 import { generateText, streamText, tool } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import {
-  claude,
-  gemini,
-  getRepoQualifier,
-  REPO_PATH,
-  REPO_URI,
-  SERVICE_PORT,
-} from "./env";
 import { anthropic } from "@ai-sdk/anthropic";
 import type { Hit } from "@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data";
 import { z } from "zod";
 import { globSync } from "fs";
 import { CohereClient } from "cohere-ai";
 import { prePass } from ".";
+import {
+  claude,
+  gemini,
+  getRepoQualifier,
+  REPO_PATH,
+  REPO_URI,
+  CO_API_KEY,
+  GOOGLE_GENERATIVE_AI_API_KEY,
+  SERVICE_PORT,
+  CORS_ORIGIN,
+  NODE_ENV,
+  LOG_LEVEL,
+} from "./env";
 
-const cohere = new CohereClient({ token: process.env["COHERE_API_KEY"] });
+const cohere = new CohereClient({ token: CO_API_KEY });
 
 let fastify = Fastify({ logger: true });
 fastify.register(FastifySSEPlugin);
@@ -147,7 +152,7 @@ fastify.put(
     `;
     const claude = anthropic("claude-3-5-sonnet-latest");
     const googleAI = createGoogleGenerativeAI({
-      apiKey: process.env["GOOGLE_GENERATIVE_AI_API_KEY"],
+      apiKey: GOOGLE_GENERATIVE_AI_API_KEY,
     });
     const gemini = googleAI("gemini-2.0-flash-lite-preview-02-05");
     const { textStream } = streamText({ model: gemini, prompt });
@@ -280,7 +285,7 @@ export function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
 }
 
 export async function getSimilarFunctions(description: string) {
-  console.log(description)
+  console.log(description);
   const namespace = getRepoQualifier(REPO_URI).replace("/", "-");
   const denseIndex = pc.index("graphsense-dense").namespace(namespace);
   const sparseIndex = pc.index("graphsense-sparse").namespace(namespace);
@@ -517,10 +522,33 @@ fastify.get<{ Params: FunctionRouteParams }>(
   },
 );
 
+// Health check endpoint
+fastify.get("/health", async (request, reply) => {
+  return reply.send({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    port: SERVICE_PORT,
+  });
+});
+
 if (require.main === module) {
   prePass()
     .then(() => {
-      fastify.listen({ port: SERVICE_PORT });
+      fastify.listen(
+        {
+          port: SERVICE_PORT,
+          host: "0.0.0.0",
+        },
+        (err, address) => {
+          if (err) {
+            fastify.log.error(err);
+            process.exit(1);
+          }
+          console.log(`🚀 Server listening at ${address}`);
+          console.log(`📊 Health check available at ${address}/health`);
+        },
+      );
     })
     .catch((err) => {
       fastify.log.error(err);

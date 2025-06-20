@@ -32,8 +32,8 @@ export async function parseFunctionDeclaration(
 
   const result = await executeQuery(
     `
-          MERGE (function:Function {name: $name, path: $path}) return elementId(function) as id
-          `,
+      MERGE (function:Function {name: $name, path: $path}) return elementId(function) as id
+    `,
     {
       path: cleanPath(node.getSourceFile().fileName),
       name: node.name?.escapedText,
@@ -148,10 +148,10 @@ async function addCallsRelation(
   for (const callee of callees) {
     const result = await executeQuery(
       `
-            match (importer:File { path: $path })-[importReln:IMPORTS_FROM]->(importee:File)
-            where importReln.clause = $callee
-            return importee.path as destination;
-            `,
+        match (importer:File { path: $path })-[importReln:IMPORTS_FROM]->(importee:File)
+        where importReln.clause = $callee
+        return importee.path as destination;
+      `,
       { path: cleanPath(callerPath), callee: callee },
     );
     if (!result.records.length) {
@@ -163,9 +163,9 @@ async function addCallsRelation(
     )[0];
     executeQuery(
       `
-            match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
-            merge (caller)-[:CALLS]->(callee)
-        `,
+        match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
+        merge (caller)-[:CALLS]->(callee)
+      `,
       {
         callerName: caller,
         callerPath: cleanPath(callerPath),

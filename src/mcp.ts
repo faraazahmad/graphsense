@@ -6,7 +6,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { executeQuery, db } from "./db";
 import { getSimilarFunctions } from "./api";
-import { prePass } from ".";
 
 // Create an MCP server
 const server = new McpServer({
@@ -19,7 +18,9 @@ server.tool(
   "similar_functions",
   "To search for functions in the codebase based on what they do.",
   {
-    function_description: z.string().describe("description of the task performed by the function"),
+    function_description: z
+      .string()
+      .describe("description of the task performed by the function"),
     topK: z.number().describe("Number of results to return (default: 10)"),
   },
   async ({ function_description, topK = 10 }) => {
@@ -34,7 +35,7 @@ server.tool(
         ],
       };
     } catch (error) {
-      console.error(error)
+      console.error(error);
       return {
         content: [
           {
@@ -203,7 +204,6 @@ server.resource(
 );
 
 if (require.main === module) {
-  prePass();
   // Start receiving messages on stdin and sending messages on stdout
   const transport = new StdioServerTransport();
   server

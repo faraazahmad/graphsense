@@ -109,7 +109,7 @@ export const GITHUB_PAT = process.env.GITHUB_PAT;
 export const NEON_API_KEY = process.env.NEON_API_KEY as string;
 export const HOME_PATH = process.env.HOME as string;
 export const REPO_URI = process.env.REPO_URI as string;
-export const REPO_PATH = '/home/repo'; // `${HOME_PATH}/.graphsense/${getRepoQualifier(REPO_URI)}`;
+export const REPO_PATH = "/home/repo"; // `${HOME_PATH}/.graphsense/${getRepoQualifier(REPO_URI)}`;
 
 // API Keys
 export const GOOGLE_GENERATIVE_AI_API_KEY = process.env

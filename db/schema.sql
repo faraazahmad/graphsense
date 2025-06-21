@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS functions (
     path varchar(255) NOT NULL,
     start_line INTEGER,
     end_line INTEGER,
+    parsed timestamp,
     summary TEXT,
     embedding VECTOR(1024)
 );

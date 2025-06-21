@@ -16,7 +16,11 @@ services:
     networks:
       - graphsense-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-graphsense}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-graphsense}",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,7 +69,7 @@ services:
       - "${PORT:-8080}:8080"
     environment:
       # Repository Configuration
-      - REPO_URI=${REPO_URI}
+      - REPO_PATH=${REPO_PATH}
       - HOME=/app
       - GITHUB_PAT=${GITHUB_PAT}
       - LOCAL_REPO_PATH=/home/repo

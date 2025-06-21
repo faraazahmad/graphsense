@@ -153,6 +153,7 @@ See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
 |---------|-------------|
 | `npm run dev` | Start development server with hot reload |
 | `npm run prod` | Start production server |
+| `npm run watch` | Start file watcher for real-time code analysis |
 | `npm run docker:setup` | Complete Docker environment setup |
 | `npm run docker:start` | Start Docker services |
 | `npm run docker:stop` | Stop Docker services |
@@ -181,6 +182,53 @@ See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
    - Generate AI summaries for functions
    - Create vector embeddings
    - Store everything in Neo4j and PostgreSQL
+
+### Real-time File Watching
+
+For continuous monitoring and real-time code analysis, use the file watcher:
+
+```bash
+# Watch current directory
+npm run watch .
+
+# Watch specific directory
+npm run watch /path/to/your/codebase
+
+# Or use directly with Node.js
+node build/watcher.js /path/to/watch
+```
+
+The file watcher will:
+- Monitor specified directory for file changes (recursively)
+- Watch `.js`, `.ts`, and `.json` files by default
+- Ignore `node_modules`, `.git`, `build`, `dist`, and log files
+- Debounce changes (1 second delay) to avoid duplicate processing
+- Automatically call `index.ts` with the changed file's absolute path
+- Process files incrementally as they're modified
+
+**File Watcher Features:**
+- **Recursive Monitoring**: Watches entire directory trees
+- **Smart Filtering**: Only processes relevant file types
+- **Debouncing**: Prevents duplicate processing of rapid changes
+- **Graceful Shutdown**: Handles Ctrl+C and termination signals
+- **Error Handling**: Continues monitoring even if individual files fail
+- **Real-time Logging**: Shows which files are being processed
+
+**Example Usage:**
+```bash
+# Start watching your project directory
+npm run watch /home/user/my-project
+
+# Output:
+# Starting file watcher on: /home/user/my-project
+# Watching extensions: .js, .ts, .json
+# File watcher started successfully
+# File changed: /home/user/my-project/src/utils.ts
+# Calling index.ts with path: /home/user/my-project/src/utils.ts
+# Successfully processed: /home/user/my-project/src/utils.ts
+```
+
+To stop the watcher, press `Ctrl+C` for graceful shutdown.
 
 ### Starting the API Server
 
@@ -302,7 +350,8 @@ src/
 ├── infer.ts        # Direct inference utilities
 ├── mcp.ts          # Model Context Protocol server
 ├── parse.ts        # Code parsing and AI processing
-└── planner.ts      # Query planning and execution
+├── planner.ts      # Query planning and execution
+└── watcher.ts      # File watcher for real-time analysis
 ```
 
 ### Key Components

@@ -1,6 +1,7 @@
 # Environment Variables Configuration
 
-This document describes all environment variables used by the Code Graph RAG application and how to configure them for different deployment scenarios.
+This document describes all environment variables used by the Code Graph RAG
+application and how to configure them for different deployment scenarios.
 
 ## Quick Start
 

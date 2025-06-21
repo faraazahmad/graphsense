@@ -16,7 +16,7 @@ RUN npm install --loglevel verbose
 # Copy source code
 COPY src/ ./src/
 COPY db/ ./db/
-COPY .env.template ./
+COPY .env.example ./
 
 # Build the application
 RUN tsc

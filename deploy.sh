@@ -31,6 +31,7 @@ COMMANDS:
     list                               List all running instances
     logs <instance_name> [service]     Show logs for an instance
     status <instance_name>             Show status of an instance
+    debug                              Show port usage and debug information
     cleanup                            Remove all stopped containers and unused volumes
 
 OPTIONS:
@@ -46,6 +47,7 @@ EXAMPLES:
     $0 deploy /home/user/projects/my-repo my-analysis --port 8090
     $0 stop my-analysis
     $0 logs my-analysis app
+    $0 debug
     $0 remove my-analysis
 
 EOF
@@ -78,6 +80,40 @@ get_next_port() {
     echo $port
 }
 
+# Find available base port where all required ports are free
+find_available_port_set() {
+    local base_port=${1:-$DEFAULT_BASE_PORT}
+    local port=$base_port
+
+    while true; do
+        # Check if all required ports are available
+        local app_port=$port
+        local postgres_port=$((port + 100))
+        local neo4j_http_port=$((port + 200))
+        local neo4j_bolt_port=$((port + 201))
+
+        # Check if any of the required ports are in use
+        if netstat -an 2>/dev/null | grep -q ":$app_port " || \
+           netstat -an 2>/dev/null | grep -q ":$postgres_port " || \
+           netstat -an 2>/dev/null | grep -q ":$neo4j_http_port " || \
+           netstat -an 2>/dev/null | grep -q ":$neo4j_bolt_port "; then
+            # At least one port is in use, try next set
+            ((port += 10))  # Skip by 10 to avoid conflicts
+        else
+            # All ports are available
+            break
+        fi
+
+        # Safety check to avoid infinite loop
+        if [[ $port -gt 65000 ]]; then
+            log_error "Unable to find available port set starting from $base_port"
+            exit 1
+        fi
+    done
+
+    echo $port
+}
+
 # Generate instance name from repo path
 generate_instance_name() {
     local repo_path=$1
@@ -89,7 +125,12 @@ generate_instance_name() {
 # Check if instance exists
 instance_exists() {
     local instance_name=$1
-    docker-compose -p "$instance_name" ps -q # > /dev/null 2>&1
+    # Check if any containers exist for this project
+    if docker ps -a --filter "label=com.docker.compose.project=$instance_name" --format "{{.Names}}" | grep -q .; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Deploy new instance
@@ -128,11 +169,11 @@ deploy_instance() {
     #     exit 1
     # fi
 
-    # Get available ports
-    local app_port=$(get_next_port ${base_port:-$DEFAULT_BASE_PORT})
-    local postgres_port=$(get_next_port $((app_port + 100)))
-    local neo4j_http_port=$(get_next_port $((app_port + 200)))
-    local neo4j_bolt_port=$(get_next_port $((app_port + 201)))
+    # Get available ports (find a base port where all required ports are free)
+    local app_port=$(find_available_port_set ${base_port:-$DEFAULT_BASE_PORT})
+    local postgres_port=$((app_port + 100))
+    local neo4j_http_port=$((app_port + 200))
+    local neo4j_bolt_port=$((app_port + 201))
 
     # Create temporary environment file
     local temp_env=$(mktemp)
@@ -239,24 +280,45 @@ EOF
 
     # Deploy the instance
     log_info "Starting services for instance: $instance_name"
-    COMPOSE_PROJECT_NAME="$instance_name" docker-compose \
+
+    # Ensure we're using the correct project name and check for conflicts
+    export COMPOSE_PROJECT_NAME="$instance_name"
+
+    if ! docker-compose \
         -f docker-compose.yml \
         -f "$compose_override" \
         --env-file "$temp_env" \
-        up -d
+        up -d; then
+        log_error "Failed to deploy instance $instance_name"
+        rm -f "$temp_env" "$compose_override"
+        exit 1
+    fi
 
     # Wait for services to be healthy
     log_info "Waiting for services to be healthy..."
-    local max_attempts=30
+    local max_attempts=60
     local attempt=0
+    local all_healthy=false
+
     while [[ $attempt -lt $max_attempts ]]; do
-        if docker-compose -p "$instance_name" ps | grep -q "healthy"; then
+        # Check if all services are healthy
+        local healthy_count=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps --services | wc -l)
+        local running_healthy=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps | grep -c "healthy\|Up" || echo "0")
+
+        if [[ $running_healthy -ge $healthy_count ]]; then
+            all_healthy=true
             break
         fi
+
         sleep 5
         ((attempt++))
-        log_info "Waiting... ($attempt/$max_attempts)"
+        log_info "Waiting for health checks... ($attempt/$max_attempts)"
     done
+
+    if [[ "$all_healthy" != "true" ]]; then
+        log_warning "Not all services became healthy within timeout, but continuing..."
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps
+    fi
 
     # Cleanup temporary files
     rm -f "$temp_env" "$compose_override"
@@ -278,7 +340,10 @@ stop_instance() {
     fi
 
     log_info "Stopping instance: $instance_name"
-    docker-compose -p "$instance_name" stop
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose stop; then
+        log_error "Failed to stop instance $instance_name"
+        exit 1
+    fi
     log_success "Instance '$instance_name' stopped."
 }
 
@@ -292,7 +357,10 @@ start_instance() {
     fi
 
     log_info "Starting instance: $instance_name"
-    docker-compose -p "$instance_name" start
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose start; then
+        log_error "Failed to start instance $instance_name"
+        exit 1
+    fi
     log_success "Instance '$instance_name' started."
 }
 
@@ -314,10 +382,18 @@ remove_instance() {
     fi
 
     log_info "Removing instance: $instance_name"
-    docker-compose -p "$instance_name" down -v --remove-orphans
+
+    # Stop and remove containers
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose down -v --remove-orphans; then
+        log_warning "Failed to cleanly remove instance with docker-compose, trying manual cleanup..."
+
+        # Manual cleanup as fallback
+        docker ps -a --filter "label=com.docker.compose.project=$instance_name" -q | xargs -r docker rm -f
+    fi
 
     # Remove associated volumes
-    docker volume ls -q | grep "^${instance_name}_" | xargs -r docker volume rm
+    log_info "Removing associated volumes..."
+    docker volume ls -q | grep "^${instance_name}_" | xargs -r docker volume rm 2>/dev/null || true
 
     log_success "Instance '$instance_name' removed."
 }
@@ -349,9 +425,9 @@ show_logs() {
     fi
 
     if [[ -n "$service" ]]; then
-        docker-compose -p "$instance_name" logs -f "$service"
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose logs -f "$service"
     else
-        docker-compose -p "$instance_name" logs -f
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose logs -f
     fi
 }
 
@@ -365,7 +441,69 @@ show_status() {
     fi
 
     log_info "Status for instance: $instance_name"
-    docker-compose -p "$instance_name" ps
+
+    # Show docker-compose status
+    COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps
+
+    echo
+    log_info "Container details:"
+    docker ps --filter "label=com.docker.compose.project=$instance_name" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+}
+
+# Debug port usage and conflicts
+debug_ports() {
+    log_info "Port Usage Debug Information"
+    echo
+
+    log_info "Currently listening ports (GraphSense related):"
+    netstat -an 2>/dev/null | grep LISTEN | grep -E ":(808[0-9]|5[0-9][0-9][0-9]|74[0-9][0-9]|76[0-9][0-9])" | sort -n -k4 -t: || echo "No GraphSense ports detected"
+
+    echo
+    log_info "Docker containers with port mappings:"
+    docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}" | grep -E "(graphsense|neo4j|postgres)" || echo "No GraphSense containers running"
+
+    echo
+    log_info "GraphSense Docker Compose projects:"
+    docker ps --filter "label=com.docker.compose.project" --format "table {{.Names}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Ports}}" | grep graphsense || echo "No GraphSense compose projects detected"
+
+    echo
+    log_info "Available port ranges starting from common bases:"
+    for base_port in 8080 8090 8100 8110 8120; do
+        local app_port=$base_port
+        local postgres_port=$((base_port + 100))
+        local neo4j_http_port=$((base_port + 200))
+        local neo4j_bolt_port=$((base_port + 201))
+
+        local conflicts=""
+        if netstat -an 2>/dev/null | grep -q ":$app_port "; then
+            conflicts="$conflicts APP:$app_port"
+        fi
+        if netstat -an 2>/dev/null | grep -q ":$postgres_port "; then
+            conflicts="$conflicts PG:$postgres_port"
+        fi
+        if netstat -an 2>/dev/null | grep -q ":$neo4j_http_port "; then
+            conflicts="$conflicts NEO4J-HTTP:$neo4j_http_port"
+        fi
+        if netstat -an 2>/dev/null | grep -q ":$neo4j_bolt_port "; then
+            conflicts="$conflicts NEO4J-BOLT:$neo4j_bolt_port"
+        fi
+
+        if [[ -z "$conflicts" ]]; then
+            echo "  Base $base_port: ✅ AVAILABLE (App:$app_port, PG:$postgres_port, Neo4j:$neo4j_http_port/$neo4j_bolt_port)"
+        else
+            echo "  Base $base_port: ❌ CONFLICTS -$conflicts"
+        fi
+    done
+
+    echo
+    log_info "Next available base port:"
+    local next_port=$(find_available_port_set 8080)
+    echo "  Recommended base port: $next_port"
+    echo "  Ports that will be used:"
+    echo "    - Application: $next_port"
+    echo "    - PostgreSQL: $((next_port + 100))"
+    echo "    - Neo4j HTTP: $((next_port + 200))"
+    echo "    - Neo4j Bolt: $((next_port + 201))"
 }
 
 # Cleanup
@@ -389,7 +527,7 @@ REBUILD=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        deploy|stop|start|remove|list|logs|status|cleanup)
+        deploy|stop|start|remove|list|logs|status|debug|cleanup)
             COMMAND=$1
             shift
             ;;
@@ -494,6 +632,9 @@ case $COMMAND in
             exit 1
         fi
         show_status "$INSTANCE_NAME"
+        ;;
+    debug)
+        debug_ports
         ;;
     cleanup)
         cleanup

@@ -32,7 +32,6 @@ These variables MUST be set for the application to function properly:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `REPO_URI` | Git repository URL to analyze | `git@github.com:your-org/your-repo.git` |
 | `HOME` | Home directory path | `/home/username` or `/root` |
 
 ### AI Service API Keys
@@ -43,7 +42,7 @@ These variables MUST be set for the application to function properly:
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key | [Anthropic Console](https://console.anthropic.com/) |
 | `CO_API_KEY` | Cohere API key | [Cohere Dashboard](https://dashboard.cohere.ai/api-keys) |
 | `PINECONE_API_KEY` | Pinecone vector database API key | [Pinecone Console](https://app.pinecone.io/) |
-| `NEON_API_KEY` | Neon database API key | [Neon Console](https://console.neon.tech/) |
+
 
 ## Optional Environment Variables
 
@@ -51,7 +50,6 @@ These variables MUST be set for the application to function properly:
 
 | Variable | Description | Default | Notes |
 |----------|-------------|---------|-------|
-| `GITHUB_PAT` | GitHub Personal Access Token | - | Required for private repositories |
 
 ### Application Configuration
 
@@ -104,13 +102,12 @@ npm run dev
 
 **Minimal `.env` for development:**
 ```env
-REPO_URI=git@github.com:your-org/your-repo.git
 HOME=/home/username
 GOOGLE_GENERATIVE_AI_API_KEY=your-key-here
 ANTHROPIC_API_KEY=your-key-here
 CO_API_KEY=your-key-here
 PINECONE_API_KEY=your-key-here
-NEON_API_KEY=your-key-here
+
 NODE_ENV=development
 LOG_LEVEL=debug
 ```
@@ -193,9 +190,6 @@ npm run health
 
 2. **Git Access Issues:**
    ```
-   Error: Repository clone failed
-   ```
-   **Solution:** Ensure `GITHUB_PAT` is set for private repos, or SSH keys are configured.
 
 3. **Database Connection Issues:**
    ```
@@ -241,10 +235,7 @@ npm run dev
    - Go to API Keys section
    - Create a new key
 
-5. **Neon:**
-   - Visit [Neon Console](https://console.neon.tech/)
-   - Navigate to API Keys
-   - Generate a new key
+
 
 ### Key Rotation
 

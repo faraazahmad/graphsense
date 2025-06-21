@@ -15,7 +15,7 @@ import { globSync } from "glob";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI, NODE_ENV } from "./env";
+import { HOME_PATH, REPO_PATH, NODE_ENV } from "./env";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -215,54 +215,6 @@ export function cleanPath(path: string) {
 }
 
 export async function useRepo(): Promise<PrePassResultDTO> {
-  // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
-  /*
-  const isHttpUrl =
-    REPO_URI.startsWith("http://") || REPO_URI.startsWith("https://");
-  const isSshUrl = REPO_URI.startsWith("git@");
-  const isLocalPath = !isHttpUrl && !isSshUrl && existsSync(REPO_URI);
-
-  if (isHttpUrl || isSshUrl) {
-    let org: string, repoName: string, cloneUrl: string;
-
-    if (isHttpUrl) {
-      cloneUrl = REPO_URI.replace("github", `faraazahmad:${GITHUB_PAT}@github`);
-      const url = new URL(cloneUrl);
-      const pathParts = url.pathname
-        .split("/")
-        .filter((part) => part.length > 0);
-      org = pathParts[0];
-      repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
-    } else {
-      // SSH URL format: git@github.com:org/repo.git
-      cloneUrl = REPO_URI;
-      const colonIndex = REPO_URI.indexOf(":");
-      const pathAfterColon = REPO_URI.substring(colonIndex + 1);
-      const pathParts = pathAfterColon.split("/");
-      org = pathParts[0];
-      repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
-    }
-
-    const orgPath = `${HOME_PATH}/.graphsense/${org}`;
-    if (!existsSync(orgPath)) {
-      console.log("doesnt exist");
-      mkdirSync(orgPath, {
-        recursive: true,
-      });
-    }
-    const targetPath = `${HOME_PATH}/.graphsense/${org}/${repoName}`;
-
-    if (!existsSync(targetPath)) {
-      console.log(`Cloning ${cloneUrl} to ${targetPath}`);
-      execSync(`git clone --depth 1 ${cloneUrl} ${targetPath}`, {
-        stdio: "inherit",
-      });
-    }
-  } else if (isLocalPath) {
-    console.log(`Using local repository at ${REPO_URI}`);
-  }
-  */
-
   // Use the repository path from environment variable or command line arg
   const repoPath = getRepoPath();
   console.log(`Using repository at ${repoPath}`);

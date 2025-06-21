@@ -71,7 +71,6 @@ services:
       # Repository Configuration
       - REPO_PATH=${REPO_PATH}
       - HOME=/app
-      - GITHUB_PAT=${GITHUB_PAT}
       - LOCAL_REPO_PATH=/home/repo
 
       # API Keys
@@ -107,7 +106,6 @@ services:
       # Debug Configuration
       - DEBUG=${DEBUG:-}
     volumes:
-      - app_repos:/app/.graphsense
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${REPO_PATH}:/home/repo:ro
     depends_on:

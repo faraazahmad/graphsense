@@ -79,8 +79,6 @@ The system uses a hybrid approach combining:
   - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
   - Pinecone - [Get API Key](https://app.pinecone.io/)
   - Cohere - [Get API Key](https://dashboard.cohere.ai/api-keys)
-  - Neon Database - [Get API Key](https://console.neon.tech/)
-  - GitHub Personal Access Token (for private repos) - [Create PAT](https://github.com/settings/tokens)
 
 ## Installation & Setup
 
@@ -131,16 +129,48 @@ cd code-graph-rag
 ### Environment Variables
 
 Required variables (must be set):
-- `REPO_URI` - Repository to analyze
 - `GOOGLE_GENERATIVE_AI_API_KEY` - Gemini API key
 - `ANTHROPIC_API_KEY` - Claude API key  
 - `CO_API_KEY` - Cohere API key
 - `PINECONE_API_KEY` - Pinecone API key
-- `NEON_API_KEY` - Neon database API key
+
 - `HOME` - Home directory path
 
+### Database Configuration
+
+The system uses two databases:
+
+- **PostgreSQL with pgvector**: Stores function embeddings and metadata
+- **Neo4j**: Stores code structure and relationships
+
+When using Docker (recommended), both databases are automatically configured via `docker-compose.yml`:
+
+```yaml
+# PostgreSQL with pgvector extension
+postgres:
+  image: pgvector/pgvector:pg16
+  environment:
+    - POSTGRES_DB=graphsense
+    - POSTGRES_USER=postgres  
+    - POSTGRES_PASSWORD=postgres
+  ports:
+    - "5432:5432"
+
+# Neo4j graph database  
+neo4j:
+  image: neo4j:latest
+  environment:
+    - NEO4J_AUTH=none
+  ports:
+    - "7474:7474"  # Web interface
+    - "7687:7687"  # Bolt protocol
+```
+
+**Local Development**: The application connects to `localhost:5432` (PostgreSQL) and `localhost:7687` (Neo4j) by default.
+
+**Docker Development**: Connections are handled automatically via Docker networking.
+
 Optional variables:
-- `GITHUB_PAT` - GitHub Personal Access Token (private repos)
 - `NODE_ENV` - Environment (development/production)
 - `PORT` - Server port (default: 8080)
 - `LOG_LEVEL` - Logging level (default: info)
@@ -167,7 +197,7 @@ See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
 
 1. **Set the repository URI** in your `.env` file:
    ```env
-   REPO_URI=https://github.com/your-org/your-repo.git
+   # No longer needed - repository path is passed as command line argument
    ```
 
 2. **Run the indexing process**:

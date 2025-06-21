@@ -18,14 +18,13 @@ import {
   gemini,
   getRepoQualifier,
   REPO_PATH,
-  REPO_URI,
   CO_API_KEY,
   GOOGLE_GENERATIVE_AI_API_KEY,
   SERVICE_PORT,
   CORS_ORIGIN,
   NODE_ENV,
-  LOG_LEVEL,
 } from "./env";
+import { getRepoPath } from "./index";
 
 const cohere = new CohereClient({ token: CO_API_KEY });
 
@@ -285,7 +284,7 @@ export function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
 
 export async function getSimilarFunctions(description: string) {
   console.log(description);
-  const namespace = getRepoQualifier(REPO_URI).replace("/", "-");
+  const namespace = getRepoQualifier(getRepoPath()).replace("/", "-");
   const denseIndex = pc.index("graphsense-dense").namespace(namespace);
   const sparseIndex = pc.index("graphsense-sparse").namespace(namespace);
 

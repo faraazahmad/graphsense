@@ -8,7 +8,7 @@ import {
 import { generateText, GenerateTextResult } from "ai";
 import { db, executeQuery, pc } from "./db";
 import { cleanPath, getRepoPath } from ".";
-import { claude, gemini, getRepoQualifier, REPO_URI } from "./env";
+import { claude, gemini, getRepoQualifier } from "./env";
 import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers";
 
@@ -136,7 +136,7 @@ export async function processFunctionWithAI(functionData: any) {
     }
   } while (failed);
 
-  const namespace = getRepoQualifier(REPO_URI).replace("/", "-");
+  const namespace = getRepoQualifier(getRepoPath()).replace("/", "-");
   await Promise.all([
     pc
       .index("graphsense-dense")

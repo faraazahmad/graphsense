@@ -2,8 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install git (required for cloning repositories)
-RUN apk add --no-cache git
+# Install git and curl (required for cloning repositories and health checks)
+RUN apk add --no-cache git curl
 
 # Copy package files first for better caching
 COPY package*.json ./
@@ -13,13 +13,15 @@ COPY tsconfig.json ./
 RUN npm install -g typescript
 RUN npm install --loglevel verbose
 
-# Copy source code
+# Copy source code and entrypoint
 COPY src/ ./src/
 COPY db/ ./db/
 COPY .env.example ./
+COPY entrypoint.js ./
 
-# Build the application
+# Build the application and make entrypoint executable
 RUN tsc
+RUN chmod +x entrypoint.js
 
 # Create directory for the repository
 RUN mkdir -p /home/repo
@@ -40,4 +42,4 @@ ENV NEO4J_USERNAME=neo4j
 ENV NEO4J_PASSWORD=""
 ENV LOCAL_REPO_PATH=/home/repo
 
-CMD ["node", "build/index.js"]
+CMD ["node", "entrypoint.js"]

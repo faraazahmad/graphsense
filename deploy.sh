@@ -37,9 +37,6 @@ COMMANDS:
 OPTIONS:
     --port <port>                      Base port for the instance (default: auto-assigned)
     --env-file <file>                  Environment file to use
-    --github-pat <token>               GitHub Personal Access Token
-    --google-api-key <key>             Google Generative AI API Key
-    --anthropic-api-key <key>          Anthropic API Key
     --rebuild                          Force rebuild of the application image
 
 EXAMPLES:
@@ -139,7 +136,6 @@ deploy_instance() {
     local instance_name=$2
     local base_port=$3
     local env_file=$4
-    local github_pat=$5
     local google_api_key=$6
     local anthropic_api_key=$7
     local rebuild=$8
@@ -180,7 +176,6 @@ deploy_instance() {
     cat > "$temp_env" << EOF
 # Repository Configuration
 REPO_PATH=$repo_path
-GITHUB_PAT=${github_pat}
 
 # API Keys
 GOOGLE_GENERATIVE_AI_API_KEY=${google_api_key}
@@ -520,9 +515,6 @@ REPO_PATH=""
 INSTANCE_NAME=""
 BASE_PORT=""
 ENV_FILE=""
-GITHUB_PAT=""
-GOOGLE_API_KEY=""
-ANTHROPIC_API_KEY=""
 REBUILD=false
 
 while [[ $# -gt 0 ]]; do
@@ -537,18 +529,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --env-file)
             ENV_FILE=$2
-            shift 2
-            ;;
-        --github-pat)
-            GITHUB_PAT=$2
-            shift 2
-            ;;
-        --google-api-key)
-            GOOGLE_API_KEY=$2
-            shift 2
-            ;;
-        --anthropic-api-key)
-            ANTHROPIC_API_KEY=$2
             shift 2
             ;;
         --rebuild)
@@ -593,7 +573,7 @@ case $COMMAND in
             log_error "Repository path is required for deploy command."
             exit 1
         fi
-        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$ENV_FILE" "$GITHUB_PAT" "$GOOGLE_API_KEY" "$ANTHROPIC_API_KEY" "$REBUILD"
+        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$ENV_FILE" "$GOOGLE_API_KEY" "$ANTHROPIC_API_KEY" "$REBUILD"
         ;;
     stop)
         if [[ -z "$INSTANCE_NAME" ]]; then

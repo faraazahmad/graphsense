@@ -133,7 +133,6 @@ local_development_setup() {
             echo -e "   - Anthropic API Key"
             echo -e "   - Cohere API Key"
             echo -e "   - Pinecone API Key"
-            echo -e "   - Neon API Key"
             echo
             read -p "Press Enter after you've edited the .env file, or Ctrl+C to exit..."
         else
@@ -295,7 +294,6 @@ show_documentation() {
     echo -e "   • Anthropic Console: https://console.anthropic.com/"
     echo -e "   • Cohere Dashboard: https://dashboard.cohere.ai/api-keys"
     echo -e "   • Pinecone Console: https://app.pinecone.io/"
-    echo -e "   • Neon Console: https://console.neon.tech/"
     echo
     echo -e "${CYAN}🆘 Getting Help:${NC}"
     echo -e "   • Check logs: npm run docker:logs"

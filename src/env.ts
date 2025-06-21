@@ -5,16 +5,13 @@ import { google } from "@ai-sdk/google";
 // Environment variable validation and type definitions
 interface EnvironmentConfig {
   // Required variables
-  REPO_URI: string;
   HOME_PATH: string;
-  NEON_API_KEY: string;
   GOOGLE_GENERATIVE_AI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   PINECONE_API_KEY: string;
   CO_API_KEY: string;
 
   // Optional variables with defaults
-  GITHUB_PAT?: string;
   NODE_ENV: string;
   PORT: number;
   LOG_LEVEL: string;
@@ -32,7 +29,6 @@ interface EnvironmentConfig {
 // Validate required environment variables
 function validateRequiredEnvVars(): void {
   const requiredVars = [
-    "REPO_URI",
     "HOME",
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -50,7 +46,7 @@ function validateRequiredEnvVars(): void {
     console.error(
       "\n💡 Please check your .env file or environment configuration.",
     );
-    console.error("   You can use .env.template as a reference.");
+    console.error("You can use .env.template as a reference.");
     process.exit(1);
   }
 }
@@ -74,42 +70,18 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
 // Validate environment variables on module load
 validateRequiredEnvVars();
 
-export function getRepoQualifier(repoUri: string) {
-  const isHttpUrl =
-    repoUri.startsWith("http://") || repoUri.startsWith("https://");
-  const isSshUrl = repoUri.startsWith("git@");
+export function getRepoQualifier(repoPath: string): string {
+  // Extract repository name from the path
+  const pathParts = repoPath.split("/").filter((part) => part.length > 0);
+  const repoName = pathParts[pathParts.length - 1] || "default-repo";
 
-  if (!isHttpUrl && !isSshUrl) {
-    return "";
-  }
-
-  let org: string, repoName: string, cloneUrl: string;
-
-  if (isHttpUrl) {
-    cloneUrl = repoUri.replace("github", `faraazahmad:${GITHUB_PAT}@github`);
-    const url = new URL(cloneUrl);
-    const pathParts = url.pathname.split("/").filter((part) => part.length > 0);
-    org = pathParts[0];
-    repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
-  } else {
-    // SSH URL format: git@github.com:org/repo.git
-    cloneUrl = repoUri;
-    const colonIndex = repoUri.indexOf(":");
-    const pathAfterColon = repoUri.substring(colonIndex + 1);
-    const pathParts = pathAfterColon.split("/");
-    org = pathParts[0];
-    repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
-  }
-
-  return `${org}/${repoName}`;
+  // Create a simple qualifier based on the repository directory name
+  return `local/${repoName}`;
 }
 
 // Core environment variables
-export const GITHUB_PAT = process.env.GITHUB_PAT;
-export const NEON_API_KEY = process.env.NEON_API_KEY as string;
 export const HOME_PATH = process.env.HOME as string;
-export const REPO_URI = process.env.REPO_URI as string;
-export const REPO_PATH = "/home/repo"; // `${HOME_PATH}/.graphsense/${getRepoQualifier(REPO_URI)}`;
+export const REPO_PATH = "/home/repo";
 
 // API Keys
 export const GOOGLE_GENERATIVE_AI_API_KEY = process.env
@@ -156,7 +128,6 @@ export const ENV_INFO = {
   nodeEnv: NODE_ENV,
   port: SERVICE_PORT,
   logLevel: LOG_LEVEL,
-  repoUri: REPO_URI,
   neo4jUri: NEO4J_URI,
   indexFromScratch: INDEX_FROM_SCRATCH,
   debug: DEBUG,
@@ -169,7 +140,6 @@ if (NODE_ENV === "development") {
   console.log(`   Node Environment: ${NODE_ENV}`);
   console.log(`   Service Port: ${SERVICE_PORT}`);
   console.log(`   Log Level: ${LOG_LEVEL}`);
-  console.log(`   Repository URI: ${REPO_URI}`);
   console.log(`   Neo4j URI: ${NEO4J_URI}`);
   console.log(`   Index from Scratch: ${INDEX_FROM_SCRATCH}`);
   console.log(`   Debug: ${DEBUG || "(none)"}`);

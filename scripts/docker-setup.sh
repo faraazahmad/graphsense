@@ -37,23 +37,21 @@ check_env_file() {
     if [ ! -f ".env" ]; then
         echo -e "${YELLOW}⚠️  .env file not found${NC}"
 
-        if [ -f ".env.template" ]; then
+        if [ -f ".env.example" ]; then
             echo -e "${BLUE}📋 Creating .env file from template...${NC}"
-            cp .env.template .env
+            cp .env.example .env
             echo -e "${GREEN}✅ .env file created from template${NC}"
             echo
             echo -e "${YELLOW}⚠️  IMPORTANT: Please edit .env file with your actual values${NC}"
             echo -e "${BLUE}Required variables for Docker deployment:${NC}"
-            echo -e "   - REPO_URI (your repository URL)"
             echo -e "   - GOOGLE_GENERATIVE_AI_API_KEY"
             echo -e "   - ANTHROPIC_API_KEY"
             echo -e "   - CO_API_KEY"
             echo -e "   - PINECONE_API_KEY"
-            echo -e "   - GITHUB_PAT (if using private repositories)"
             echo
             read -p "Press Enter to continue after editing .env file, or Ctrl+C to exit..."
         else
-            echo -e "${RED}❌ .env.template file not found${NC}"
+            echo -e "${RED}❌ .env.example file not found${NC}"
             exit 1
         fi
     fi

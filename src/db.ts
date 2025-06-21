@@ -5,7 +5,6 @@ import { Client } from "pg";
 import {
   getRepoQualifier,
   REPO_PATH,
-  REPO_URI,
   PINECONE_API_KEY,
   NEO4J_URI,
   NEO4J_USERNAME,
@@ -80,24 +79,31 @@ export async function setupDB(
     process.env.POSTGRES_URL ||
     `postgresql://${process.env.POSTGRES_USER || "postgres"}:${process.env.POSTGRES_PASSWORD || "postgres"}@${process.env.POSTGRES_HOST || "localhost"}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || "graphsense"}`;
 
-  db.relational.client = new Client(connectionString);
-  db.relational.client!.connect();
-
-  await db.relational.client!.query("CREATE EXTENSION IF NOT EXISTS vector");
-  const pgSchema = readFileSync(
-    resolve(`${__dirname}/../db/schema.sql`),
-  ).toString();
-
-  let result;
   try {
-    result = await db.relational.client!.query(pgSchema);
-  } catch (error) {
-    console.log("there was an error");
-    console.error(error);
-  }
-  console.log(result);
+    db.relational.client = new Client(connectionString);
+    await db.relational.client.connect();
 
-  return Promise.resolve(result!.rows);
+    // Test the connection
+    await db.relational.client.query("SELECT 1");
+    console.log("✅ PostgreSQL connection established successfully");
+
+    // Create pgvector extension
+    await db.relational.client.query("CREATE EXTENSION IF NOT EXISTS vector");
+    console.log("✅ pgvector extension ensured");
+
+    // Apply schema
+    const pgSchema = readFileSync(
+      resolve(`${__dirname}/../db/schema.sql`),
+    ).toString();
+
+    const result = await db.relational.client.query(pgSchema);
+    console.log("✅ Database schema applied successfully");
+
+    return Promise.resolve(result.rows);
+  } catch (error) {
+    console.error("❌ PostgreSQL connection failed:", error);
+    throw error;
+  }
 }
 
 if (require.main === module) {

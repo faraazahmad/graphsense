@@ -93,7 +93,7 @@ The script supports several configuration options:
 |--------|-------------|---------|
 | `--port` | Base port for the instance | `--port 8090` |
 | `--env-file` | Custom environment file | `--env-file .env.prod` |
-| `--github-pat` | GitHub Personal Access Token | `--github-pat ghp_xxx` |
+
 | `--google-api-key` | Google Generative AI API Key | `--google-api-key your-key` |
 | `--anthropic-api-key` | Anthropic API Key | `--anthropic-api-key your-key` |
 | `--rebuild` | Force rebuild of application image | `--rebuild` |

@@ -525,7 +525,7 @@ fastify.get("/health", async (request, reply) => {
 
 // Start the server
 const PORT = Number(process.env.PORT) || 8080;
-const HOST = process.env.HOST || "localhost";
+const HOST = process.env.HOST || "0.0.0.0";
 
 if (require.main === module) {
   const start = async () => {

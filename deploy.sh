@@ -32,6 +32,7 @@ COMMANDS:
     logs <instance_name> [service]     Show logs for an instance
     status <instance_name>             Show status of an instance
     debug                              Show port usage and debug information
+    debug-connectivity <instance_name> Debug connectivity issues for an instance
     cleanup                            Remove all stopped containers and unused volumes
 
 OPTIONS:
@@ -128,6 +129,81 @@ instance_exists() {
     else
         return 1
     fi
+}
+
+# Debug connectivity issues
+debug_connectivity() {
+    local instance_name=$1
+
+    if [[ -z "$instance_name" ]]; then
+        log_error "Instance name required for connectivity debug"
+        exit 1
+    fi
+
+    log_info "Debugging connectivity for instance: $instance_name"
+
+    # Check if containers exist and are running
+    log_info "=== Container Status ==="
+    if ! docker ps -a --filter "label=com.docker.compose.project=$instance_name" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; then
+        log_error "No containers found for instance $instance_name"
+        return 1
+    fi
+
+    # Check port mappings
+    log_info "=== Port Mappings ==="
+    docker ps --filter "label=com.docker.compose.project=$instance_name" --format "table {{.Names}}\t{{.Ports}}"
+
+    # Check if ports are actually listening
+    log_info "=== Port Connectivity Tests ==="
+    local app_container="${instance_name}-app"
+    local postgres_container="${instance_name}-postgres"
+    local neo4j_container="${instance_name}-neo4j"
+
+    # Test internal container connectivity
+    if docker exec "$app_container" nc -z localhost 8080 2>/dev/null; then
+        log_success "App container internal port 8080: LISTENING"
+    else
+        log_error "App container internal port 8080: NOT LISTENING"
+    fi
+
+    # Get actual host ports
+    local host_app_port=$(docker port "$app_container" 8080 2>/dev/null | cut -d: -f2)
+    local host_postgres_port=$(docker port "$postgres_container" 5432 2>/dev/null | cut -d: -f2)
+    local host_neo4j_http_port=$(docker port "$neo4j_container" 7474 2>/dev/null | cut -d: -f2)
+
+    if [[ -n "$host_app_port" ]]; then
+        log_info "Testing host connectivity to app on port $host_app_port..."
+        if nc -z localhost "$host_app_port" 2>/dev/null; then
+            log_success "Host port $host_app_port: ACCESSIBLE"
+        else
+            log_error "Host port $host_app_port: NOT ACCESSIBLE"
+        fi
+
+        # Test HTTP health endpoint
+        log_info "Testing HTTP health endpoint..."
+        if curl -f -s "http://localhost:$host_app_port/health" >/dev/null 2>&1; then
+            log_success "Health endpoint: RESPONDING"
+        else
+            log_error "Health endpoint: NOT RESPONDING"
+        fi
+    else
+        log_error "App container port not mapped to host"
+    fi
+
+    # Show recent logs
+    log_info "=== Recent Container Logs ==="
+    log_info "App container logs (last 20 lines):"
+    docker logs --tail 20 "$app_container" 2>&1 | sed 's/^/  /'
+
+    # Network information
+    log_info "=== Network Information ==="
+    docker network ls --filter "name=$instance_name"
+    docker inspect "${instance_name}-network" --format '{{.IPAM.Config}}' 2>/dev/null || log_warning "Network not found"
+
+    # Container resource usage
+    log_info "=== Resource Usage ==="
+    docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
+        $(docker ps --filter "label=com.docker.compose.project=$instance_name" --format "{{.Names}}")
 }
 
 # Deploy new instance
@@ -234,11 +310,11 @@ services:
 
   app:
     container_name: ${instance_name}-app
-    ports:
-      - "$app_port:$app_port"
     volumes:
       - ${instance_name}_app_repos:/app/.graphsense
       - ${repo_path}:/home/repo:ro
+    ports:
+      - "${app_port}:8080"
     networks:
       - ${instance_name}-network
     environment:
@@ -545,7 +621,7 @@ while [[ $# -gt 0 ]]; do
         *)
             if [[ -z "$REPO_PATH" && "$COMMAND" == "deploy" ]]; then
                 REPO_PATH=$1
-            elif [[ -z "$INSTANCE_NAME" && ("$COMMAND" == "deploy" || "$COMMAND" == "stop" || "$COMMAND" == "start" || "$COMMAND" == "remove" || "$COMMAND" == "logs" || "$COMMAND" == "status") ]]; then
+            elif [[ -z "$INSTANCE_NAME" && ("$COMMAND" == "deploy" || "$COMMAND" == "stop" || "$COMMAND" == "start" || "$COMMAND" == "remove" || "$COMMAND" == "logs" || "$COMMAND" == "status" || "$COMMAND" == "debug-connectivity") ]]; then
                 INSTANCE_NAME=$1
             else
                 log_error "Unexpected argument: $1"
@@ -613,6 +689,13 @@ case $COMMAND in
         ;;
     debug)
         debug_ports
+        ;;
+    debug-connectivity)
+        if [[ -z "$INSTANCE_NAME" ]]; then
+            log_error "Instance name is required for debug-connectivity command."
+            exit 1
+        fi
+        debug_connectivity "$INSTANCE_NAME"
         ;;
     cleanup)
         cleanup

@@ -1,10 +1,10 @@
 {
   "scripts": {
     "build": "tsc",
-    "dev": "chmod +x scripts/start-dev.sh && ./scripts/start-dev.sh",
+    "dev": "npm run build && chmod +x scripts/start-dev.sh && ./scripts/start-dev.sh",
     "dev:entrypoint": "chmod +x entrypoint-dev.js && node entrypoint-dev.js",
     "prod": "npm run build && chmod +x scripts/start-prod.sh && ./scripts/start-prod.sh",
-    "server": "node --watch-path=./build build/api.js",
+    "mcp": "npm run build && node build/mcp.js",
     "start": "npm run build && node build/index.js",
     "start:full": "chmod +x entrypoint.js && node entrypoint.js",
     "start:shell": "chmod +x start.sh && ./start.sh",
@@ -17,12 +17,10 @@
     "env:check": "node scripts/validate-env.js",
     "env:validate": "node scripts/validate-env.js",
     "db:test": "node scripts/test-db.js",
-    "health": "curl -f http://localhost:${PORT:-8080}/health || echo 'Service not running'",
+    "health": "curl -f http://localhost:${MCP_PORT:-8080}/health || echo 'MCP server not running'",
     "watch": "npm run build && node build/watcher.js",
-    "mcp:stdio": "npm run build && node build/mcp.js",
-    "mcp:http": "npm run build && node build/mcp-http.js",
-    "mcp:http:fastify": "npm run build && node build/mcp-http-fastify.js",
-    "mcp:test": "npm run build && node build/mcp-client-example.js"
+    "mcp:dev": "npm run build && MCP_PORT=8080 node build/mcp.js",
+    "mcp:test": "curl -X POST http://localhost:8080/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {}}'"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.10",

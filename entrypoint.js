@@ -1,30 +1,29 @@
 #!/usr/bin/env node
 
-const { spawn, exec } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const { spawn, exec } = require("child_process");
+const path = require("path");
+const fs = require("fs");
 
 // Configuration
 const PROCESSES = {
-  API: 'api',
-  WATCHER: 'watcher',
-  MCP: 'mcp'
+  WATCHER: "watcher",
+  MCP: "mcp",
 };
 
-const REPO_PATH = process.env.LOCAL_REPO_PATH || '/home/repo';
-const BUILD_DIR = path.join(__dirname, 'build');
+const REPO_PATH = process.env.LOCAL_REPO_PATH || "/home/repo";
+const BUILD_DIR = path.join(__dirname, "build");
 
 // Process tracking
 const runningProcesses = new Map();
 let isShuttingDown = false;
 
 // Logging utilities
-function log(message, process = 'MAIN') {
+function log(message, process = "MAIN") {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [${process}] ${message}`);
 }
 
-function logError(message, process = 'MAIN') {
+function logError(message, process = "MAIN") {
   const timestamp = new Date().toISOString();
   console.error(`[${timestamp}] [${process}] ERROR: ${message}`);
 }
@@ -41,7 +40,9 @@ function checkBuildDirectory() {
 function checkRepositoryPath() {
   if (!fs.existsSync(REPO_PATH)) {
     logError(`Repository path does not exist: ${REPO_PATH}`);
-    logError('Please ensure LOCAL_REPO_PATH environment variable points to a valid repository');
+    logError(
+      "Please ensure LOCAL_REPO_PATH environment variable points to a valid repository",
+    );
     process.exit(1);
   }
   log(`Using repository path: ${REPO_PATH}`);
@@ -50,15 +51,15 @@ function checkRepositoryPath() {
 // Build the TypeScript code
 function buildProject() {
   return new Promise((resolve, reject) => {
-    log('Building TypeScript project...');
-    const buildProcess = spawn('npm', ['run', 'build'], {
-      stdio: 'inherit',
-      cwd: __dirname
+    log("Building TypeScript project...");
+    const buildProcess = spawn("npm", ["run", "build"], {
+      stdio: "inherit",
+      cwd: __dirname,
     });
 
-    buildProcess.on('close', (code) => {
+    buildProcess.on("close", (code) => {
       if (code === 0) {
-        log('Build completed successfully');
+        log("Build completed successfully");
         resolve();
       } else {
         logError(`Build failed with code ${code}`);
@@ -71,16 +72,20 @@ function buildProject() {
 // Run initial indexing
 function runInitialIndexing() {
   return new Promise((resolve, reject) => {
-    log('Starting initial repository indexing...');
-    const indexProcess = spawn('node', [path.join(BUILD_DIR, 'index.js'), REPO_PATH], {
-      stdio: 'inherit',
-      cwd: __dirname,
-      env: { ...process.env, NODE_ENV: 'production' }
-    });
+    log("Starting initial repository indexing...");
+    const indexProcess = spawn(
+      "node",
+      [path.join(BUILD_DIR, "index.js"), REPO_PATH],
+      {
+        stdio: "inherit",
+        cwd: __dirname,
+        env: { ...process.env, NODE_ENV: "production" },
+      },
+    );
 
-    indexProcess.on('close', (code) => {
+    indexProcess.on("close", (code) => {
       if (code === 0) {
-        log('Initial indexing completed successfully');
+        log("Initial indexing completed successfully");
         resolve();
       } else {
         logError(`Initial indexing failed with code ${code}`);
@@ -88,7 +93,7 @@ function runInitialIndexing() {
       }
     });
 
-    indexProcess.on('error', (error) => {
+    indexProcess.on("error", (error) => {
       logError(`Failed to start indexing process: ${error.message}`);
       reject(error);
     });
@@ -101,9 +106,9 @@ function startProcess(name, command, args = [], options = {}) {
     log(`Starting ${name}...`, name);
 
     const defaultOptions = {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: __dirname,
-      env: { ...process.env, NODE_ENV: 'production' }
+      env: { ...process.env, NODE_ENV: "production" },
     };
 
     const mergedOptions = { ...defaultOptions, ...options };
@@ -119,7 +124,7 @@ function startProcess(name, command, args = [], options = {}) {
 
     // Handle stdout
     if (childProcess.stdout) {
-      childProcess.stdout.on('data', (data) => {
+      childProcess.stdout.on("data", (data) => {
         const output = data.toString().trim();
         if (output) {
           log(output, name);
@@ -129,7 +134,7 @@ function startProcess(name, command, args = [], options = {}) {
 
     // Handle stderr
     if (childProcess.stderr) {
-      childProcess.stderr.on('data', (data) => {
+      childProcess.stderr.on("data", (data) => {
         const output = data.toString().trim();
         if (output) {
           logError(output, name);
@@ -138,18 +143,21 @@ function startProcess(name, command, args = [], options = {}) {
     }
 
     // Handle process events
-    childProcess.on('close', (code, signal) => {
+    childProcess.on("close", (code, signal) => {
       runningProcesses.delete(name);
       if (!isShuttingDown) {
         if (code === 0) {
           log(`${name} exited normally`, name);
         } else {
-          logError(`${name} exited with code ${code} and signal ${signal}`, name);
+          logError(
+            `${name} exited with code ${code} and signal ${signal}`,
+            name,
+          );
         }
       }
     });
 
-    childProcess.on('error', (error) => {
+    childProcess.on("error", (error) => {
       logError(`${name} process error: ${error.message}`, name);
       runningProcesses.delete(name);
       if (!isShuttingDown) {
@@ -167,42 +175,24 @@ function startProcess(name, command, args = [], options = {}) {
   });
 }
 
-// Start API server
-async function startApiServer() {
-  return startProcess(
-    PROCESSES.API,
-    'node',
-    [path.join(BUILD_DIR, 'api.js')],
-    {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        PORT: process.env.PORT || '8080'
-      }
-    }
-  );
-}
-
 // Start file watcher
 async function startWatcher() {
-  return startProcess(
-    PROCESSES.WATCHER,
-    'node',
-    [path.join(BUILD_DIR, 'watcher.js'), REPO_PATH]
-  );
+  return startProcess(PROCESSES.WATCHER, "node", [
+    path.join(BUILD_DIR, "watcher.js"),
+    REPO_PATH,
+  ]);
 }
 
-// Start MCP server
+// Start MCP HTTP server
 async function startMcpServer() {
-  return startProcess(
-    PROCESSES.MCP,
-    'node',
-    [path.join(BUILD_DIR, 'mcp.js')],
-    {
-      stdio: ['pipe', 'inherit', 'inherit'] // MCP uses stdio for communication
-    }
-  );
+  return startProcess(PROCESSES.MCP, "node", [path.join(BUILD_DIR, "mcp.js")], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: process.env.MCP_PORT || "8080",
+    },
+  });
 }
 
 // Graceful shutdown
@@ -218,30 +208,34 @@ function gracefulShutdown(signal) {
 
   for (const [name, process] of runningProcesses) {
     log(`Stopping ${name}...`, name);
-    shutdownPromises.push(new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        logError(`Force killing ${name} after timeout`, name);
-        process.kill('SIGKILL');
-        resolve();
-      }, 10000); // 10 second timeout
+    shutdownPromises.push(
+      new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          logError(`Force killing ${name} after timeout`, name);
+          process.kill("SIGKILL");
+          resolve();
+        }, 10000); // 10 second timeout
 
-      process.on('close', () => {
-        clearTimeout(timeout);
-        log(`${name} stopped`, name);
-        resolve();
-      });
+        process.on("close", () => {
+          clearTimeout(timeout);
+          log(`${name} stopped`, name);
+          resolve();
+        });
 
-      process.kill('SIGTERM');
-    }));
+        process.kill("SIGTERM");
+      }),
+    );
   }
 
-  Promise.all(shutdownPromises).then(() => {
-    log('All processes stopped. Exiting...');
-    process.exit(0);
-  }).catch((error) => {
-    logError(`Error during shutdown: ${error.message}`);
-    process.exit(1);
-  });
+  Promise.all(shutdownPromises)
+    .then(() => {
+      log("All processes stopped. Exiting...");
+      process.exit(0);
+    })
+    .catch((error) => {
+      logError(`Error during shutdown: ${error.message}`);
+      process.exit(1);
+    });
 }
 
 // Health check function
@@ -253,7 +247,7 @@ function performHealthCheck() {
     }
 
     // Check if all expected processes are running
-    const expectedProcesses = [PROCESSES.API, PROCESSES.WATCHER];
+    const expectedProcesses = [PROCESSES.WATCHER, PROCESSES.MCP];
     const runningProcessNames = Array.from(runningProcesses.keys());
 
     for (const expectedProcess of expectedProcesses) {
@@ -267,7 +261,7 @@ function performHealthCheck() {
 // Main function
 async function main() {
   try {
-    log('Starting GraphSense Code Analysis Platform...');
+    log("Starting GraphSense Code Analysis Platform...");
 
     // Pre-flight checks
     checkBuildDirectory();
@@ -280,51 +274,50 @@ async function main() {
     await runInitialIndexing();
 
     // Start all services
-    log('Starting all services...');
-
-    // Start API server first (it's the main service)
-    await startApiServer();
-
-    // Wait a bit for API server to be ready
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    log("Starting all services...");
 
     // Start file watcher
     await startWatcher();
 
-    // Start MCP server
+    // Wait a bit for watcher to be ready
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Start MCP HTTP server
     await startMcpServer();
 
-    log('All services started successfully!');
-    log('GraphSense is ready to use:');
-    log(`  - API Server: http://localhost:${process.env.PORT || 8080}`);
-    log(`  - Health Check: http://localhost:${process.env.PORT || 8080}/health`);
+    log("All services started successfully!");
+    log("GraphSense is ready to use:");
+    log(
+      `  - MCP HTTP Server: http://localhost:${process.env.MCP_PORT || 8080}`,
+    );
+    log(
+      `  - MCP Health Check: http://localhost:${process.env.MCP_PORT || 8080}/health`,
+    );
     log(`  - File Watcher: Monitoring ${REPO_PATH}`);
-    log(`  - MCP Server: Running on stdio`);
 
     // Start health monitoring
     performHealthCheck();
-
   } catch (error) {
     logError(`Failed to start services: ${error.message}`);
-    gracefulShutdown('ERROR');
+    gracefulShutdown("ERROR");
   }
 }
 
 // Handle signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGHUP", () => gracefulShutdown("SIGHUP"));
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on("uncaughtException", (error) => {
   logError(`Uncaught exception: ${error.message}`);
   logError(error.stack);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
+  gracefulShutdown("UNCAUGHT_EXCEPTION");
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on("unhandledRejection", (reason, promise) => {
   logError(`Unhandled rejection at: ${promise}, reason: ${reason}`);
-  gracefulShutdown('UNHANDLED_REJECTION');
+  gracefulShutdown("UNHANDLED_REJECTION");
 });
 
 // Start the application
@@ -335,5 +328,5 @@ if (require.main === module) {
 module.exports = {
   main,
   startProcess,
-  gracefulShutdown
+  gracefulShutdown,
 };

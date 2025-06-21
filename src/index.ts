@@ -162,25 +162,15 @@ export async function parseFile(path: string) {
 }
 
 export function getRepoPath(): string {
-  if (NODE_ENV === "development") {
-    if (process.argv[2]) {
-      const cmdArgPath = process.argv[2];
-      if (!existsSync(cmdArgPath)) {
-        console.error(
-          `Command line argument path does not exist: ${cmdArgPath}`,
-        );
-        process.exit(1);
-      }
-      return cmdArgPath;
-    } else {
-      console.log(
-        `Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
-      );
-      console.log(`Falling back to default repository path: ${REPO_PATH}`);
+  if (process.argv[2]) {
+    const cmdArgPath = process.argv[2];
+    if (!existsSync(cmdArgPath)) {
+      console.error(`Command line argument path does not exist: ${cmdArgPath}`);
+      process.exit(1);
     }
-  } else {
-    console.log(`Using default repository path: ${REPO_PATH}`);
+    return cmdArgPath;
   }
+
   return REPO_PATH;
 }
 

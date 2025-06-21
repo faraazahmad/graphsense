@@ -177,10 +177,6 @@ deploy_instance() {
 # Repository Configuration
 REPO_PATH=$repo_path
 
-# API Keys
-GOOGLE_GENERATIVE_AI_API_KEY=${google_api_key}
-ANTHROPIC_API_KEY=${anthropic_api_key}
-
 # Port Configuration
 PORT=$app_port
 POSTGRES_PORT=$postgres_port
@@ -238,6 +234,8 @@ services:
 
   app:
     container_name: ${instance_name}-app
+    ports:
+      - "$app_port:$app_port"
     volumes:
       - ${instance_name}_app_repos:/app/.graphsense
       - ${repo_path}:/home/repo:ro
@@ -320,7 +318,7 @@ EOF
 
     log_success "Instance '$instance_name' deployed successfully!"
     log_info "Access URLs:"
-    log_info "  Application: http://localhost:$app_port"
+    log_info "  MCP Server: http://localhost:$app_port"
     log_info "  Neo4j Browser: http://localhost:$neo4j_http_port"
     log_info "  PostgreSQL: localhost:$postgres_port"
 }
@@ -495,7 +493,7 @@ debug_ports() {
     local next_port=$(find_available_port_set 8080)
     echo "  Recommended base port: $next_port"
     echo "  Ports that will be used:"
-    echo "    - Application: $next_port"
+    echo "    - MCP Server: $next_port"
     echo "    - PostgreSQL: $((next_port + 100))"
     echo "    - Neo4j HTTP: $((next_port + 200))"
     echo "    - Neo4j Bolt: $((next_port + 201))"

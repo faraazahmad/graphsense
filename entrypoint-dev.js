@@ -1,30 +1,30 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const { spawn } = require("child_process");
+const path = require("path");
+const fs = require("fs");
 
 // Configuration
 const PROCESSES = {
-  API: 'api',
-  WATCHER: 'watcher',
-  MCP: 'mcp'
+  WATCHER: "watcher",
+  MCP: "mcp",
 };
 
-const REPO_PATH = process.env.LOCAL_REPO_PATH || process.argv[2] || '/home/repo';
-const BUILD_DIR = path.join(__dirname, 'build');
+const REPO_PATH =
+  process.env.LOCAL_REPO_PATH || process.argv[2] || "/home/repo";
+const BUILD_DIR = path.join(__dirname, "build");
 
 // Process tracking
 const runningProcesses = new Map();
 let isShuttingDown = false;
 
 // Logging utilities
-function log(message, process = 'DEV') {
+function log(message, process = "DEV") {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [${process}] ${message}`);
 }
 
-function logError(message, process = 'DEV') {
+function logError(message, process = "DEV") {
   const timestamp = new Date().toISOString();
   console.error(`[${timestamp}] [${process}] ERROR: ${message}`);
 }
@@ -33,7 +33,7 @@ function logError(message, process = 'DEV') {
 function checkRepositoryPath() {
   if (!fs.existsSync(REPO_PATH)) {
     logError(`Repository path does not exist: ${REPO_PATH}`);
-    logError('Usage: node entrypoint-dev.js <path-to-repo>');
+    logError("Usage: node entrypoint-dev.js <path-to-repo>");
     process.exit(1);
   }
   log(`Using repository path: ${REPO_PATH}`);
@@ -42,16 +42,16 @@ function checkRepositoryPath() {
 // Build the TypeScript code if needed
 async function buildIfNeeded() {
   if (!fs.existsSync(BUILD_DIR)) {
-    log('Build directory not found. Building...');
+    log("Build directory not found. Building...");
     return new Promise((resolve, reject) => {
-      const buildProcess = spawn('npm', ['run', 'build'], {
-        stdio: 'inherit',
-        cwd: __dirname
+      const buildProcess = spawn("npm", ["run", "build"], {
+        stdio: "inherit",
+        cwd: __dirname,
       });
 
-      buildProcess.on('close', (code) => {
+      buildProcess.on("close", (code) => {
         if (code === 0) {
-          log('Build completed successfully');
+          log("Build completed successfully");
           resolve();
         } else {
           logError(`Build failed with code ${code}`);
@@ -60,7 +60,7 @@ async function buildIfNeeded() {
       });
     });
   } else {
-    log('Build directory exists, skipping build');
+    log("Build directory exists, skipping build");
   }
 }
 
@@ -70,9 +70,9 @@ function startProcess(name, command, args = [], options = {}) {
     log(`Starting ${name}...`, name);
 
     const defaultOptions = {
-      stdio: 'inherit',
+      stdio: "inherit",
       cwd: __dirname,
-      env: { ...process.env, NODE_ENV: 'development' }
+      env: { ...process.env, NODE_ENV: "development" },
     };
 
     const mergedOptions = { ...defaultOptions, ...options };
@@ -87,18 +87,21 @@ function startProcess(name, command, args = [], options = {}) {
     runningProcesses.set(name, childProcess);
 
     // Handle process events
-    childProcess.on('close', (code, signal) => {
+    childProcess.on("close", (code, signal) => {
       runningProcesses.delete(name);
       if (!isShuttingDown) {
         if (code === 0) {
           log(`${name} exited normally`, name);
         } else {
-          logError(`${name} exited with code ${code} and signal ${signal}`, name);
+          logError(
+            `${name} exited with code ${code} and signal ${signal}`,
+            name,
+          );
         }
       }
     });
 
-    childProcess.on('error', (error) => {
+    childProcess.on("error", (error) => {
       logError(`${name} process error: ${error.message}`, name);
       runningProcesses.delete(name);
       if (!isShuttingDown) {
@@ -116,41 +119,24 @@ function startProcess(name, command, args = [], options = {}) {
   });
 }
 
-// Start API server
-async function startApiServer() {
-  return startProcess(
-    PROCESSES.API,
-    'node',
-    [path.join(BUILD_DIR, 'api.js')],
-    {
-      env: {
-        ...process.env,
-        NODE_ENV: 'development',
-        PORT: process.env.PORT || '8080'
-      }
-    }
-  );
-}
-
 // Start file watcher
 async function startWatcher() {
-  return startProcess(
-    PROCESSES.WATCHER,
-    'node',
-    [path.join(BUILD_DIR, 'watcher.js'), REPO_PATH]
-  );
+  return startProcess(PROCESSES.WATCHER, "node", [
+    path.join(BUILD_DIR, "watcher.js"),
+    REPO_PATH,
+  ]);
 }
 
-// Start MCP server
+// Start MCP HTTP server
 async function startMcpServer() {
-  return startProcess(
-    PROCESSES.MCP,
-    'node',
-    [path.join(BUILD_DIR, 'mcp.js')],
-    {
-      stdio: ['pipe', 'inherit', 'inherit'] // MCP uses stdio for communication
-    }
-  );
+  return startProcess(PROCESSES.MCP, "node", [path.join(BUILD_DIR, "mcp.js")], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      NODE_ENV: "development",
+      PORT: process.env.MCP_PORT || "3000",
+    },
+  });
 }
 
 // Graceful shutdown
@@ -166,36 +152,40 @@ function gracefulShutdown(signal) {
 
   for (const [name, process] of runningProcesses) {
     log(`Stopping ${name}...`, name);
-    shutdownPromises.push(new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        logError(`Force killing ${name} after timeout`, name);
-        process.kill('SIGKILL');
-        resolve();
-      }, 5000); // 5 second timeout for dev
+    shutdownPromises.push(
+      new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          logError(`Force killing ${name} after timeout`, name);
+          process.kill("SIGKILL");
+          resolve();
+        }, 5000); // 5 second timeout for dev
 
-      process.on('close', () => {
-        clearTimeout(timeout);
-        log(`${name} stopped`, name);
-        resolve();
-      });
+        process.on("close", () => {
+          clearTimeout(timeout);
+          log(`${name} stopped`, name);
+          resolve();
+        });
 
-      process.kill('SIGTERM');
-    }));
+        process.kill("SIGTERM");
+      }),
+    );
   }
 
-  Promise.all(shutdownPromises).then(() => {
-    log('All processes stopped. Exiting...');
-    process.exit(0);
-  }).catch((error) => {
-    logError(`Error during shutdown: ${error.message}`);
-    process.exit(1);
-  });
+  Promise.all(shutdownPromises)
+    .then(() => {
+      log("All processes stopped. Exiting...");
+      process.exit(0);
+    })
+    .catch((error) => {
+      logError(`Error during shutdown: ${error.message}`);
+      process.exit(1);
+    });
 }
 
 // Main function
 async function main() {
   try {
-    log('Starting GraphSense in Development Mode...');
+    log("Starting GraphSense in Development Mode...");
 
     // Pre-flight checks
     checkRepositoryPath();
@@ -204,29 +194,26 @@ async function main() {
     await buildIfNeeded();
 
     // Start services
-    log('Starting development services...');
-
-    // Start API server
-    await startApiServer();
-
-    // Wait a bit for API server to be ready
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    log("Starting development services...");
 
     // Start file watcher
     await startWatcher();
 
-    // Optionally start MCP server (comment out if not needed)
-    // await startMcpServer();
+    // Start MCP HTTP server
+    await startMcpServer();
 
-    log('Development services started!');
-    log('Available services:');
-    log(`  - API Server: http://localhost:${process.env.PORT || 8080}`);
-    log(`  - Health Check: http://localhost:${process.env.PORT || 8080}/health`);
+    log("Development services started!");
+    log("Available services:");
+    log(
+      `  - MCP HTTP Server: http://localhost:${process.env.MCP_PORT || 8080}`,
+    );
+    log(
+      `  - MCP Health Check: http://localhost:${process.env.MCP_PORT || 8080}/health`,
+    );
     log(`  - File Watcher: Monitoring ${REPO_PATH}`);
-    log('');
-    log('To run initial indexing manually: npm start <repo-path>');
-    log('Press Ctrl+C to stop all services');
-
+    log("");
+    log("To run initial indexing manually: npm start <repo-path>");
+    log("Press Ctrl+C to stop all services");
   } catch (error) {
     logError(`Failed to start development services: ${error.message}`);
     process.exit(1);
@@ -234,18 +221,18 @@ async function main() {
 }
 
 // Handle signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on("uncaughtException", (error) => {
   logError(`Uncaught exception: ${error.message}`);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
+  gracefulShutdown("UNCAUGHT_EXCEPTION");
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on("unhandledRejection", (reason, promise) => {
   logError(`Unhandled rejection: ${reason}`);
-  gracefulShutdown('UNHANDLED_REJECTION');
+  gracefulShutdown("UNHANDLED_REJECTION");
 });
 
 // Start the application
@@ -256,5 +243,5 @@ if (require.main === module) {
 module.exports = {
   main,
   startProcess,
-  gracefulShutdown
+  gracefulShutdown,
 };

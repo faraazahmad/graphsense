@@ -66,7 +66,7 @@ services:
     build: .
     container_name: graphsense-app
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PORT:-3000}:3000"
     environment:
       # Repository Configuration
       - REPO_PATH=${REPO_PATH}

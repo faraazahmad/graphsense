@@ -47,16 +47,22 @@ npm run prod
 - **Dependency Tracking**: Understand import relationships and function call hierarchies
 - **AI-Powered Summaries**: Automatically generates summaries for functions using AI
 - **Real-time Analysis**: Processes codebases incrementally with file watching
-- **MCP Integration**: Supports Model Context Protocol for AI assistant integration (over HTTP)
+- **MCP Integration**: Supports Model Context Protocol for AI assistant integration over HTTP
+
+> **📢 Important**: If you're upgrading from a previous version with API server, see [MIGRATION.md](MIGRATION.md) for migration instructions.
 
 ## Model Context Protocol (MCP) Integration
 
-GraphSense provides MCP servers to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
+GraphSense provides an HTTP-based MCP server to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
 
-#### MCP Server
+#### MCP HTTP Server
 
 ```bash
-npm run mcp
+# Start MCP server on HTTP (default port 3000)
+npm run build && node build/mcp.js
+
+# Or set custom port
+MCP_PORT=4000 npm run build && node build/mcp.js
 ```
 
 ### Available MCP Tools
@@ -69,10 +75,13 @@ npm run mcp
 ### Testing MCP Integration
 
 ```bash
-npm run mcp:test
-
 # Check server health
 curl http://localhost:3000/health
+
+# Test MCP endpoint
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}'
 ```
 
 ## Architecture
@@ -207,15 +216,16 @@ See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development server with hot reload |
-| `npm run prod` | Start production server |
+| `npm run dev` | Start development services (file watcher + MCP server) |
+| `npm run prod` | Start production services |
 | `npm run watch` | Start file watcher for real-time code analysis |
+| `npm run build` | Build TypeScript to JavaScript |
+| `npm start` | Run initial indexing on a repository |
 | `npm run docker:setup` | Complete Docker environment setup |
 | `npm run docker:start` | Start Docker services |
 | `npm run docker:stop` | Stop Docker services |
 | `npm run docker:logs` | View Docker logs |
 | `npm run env:validate` | Validate environment configuration |
-| `npm run health` | Check application health |
 
 ## Usage
 
@@ -286,64 +296,60 @@ npm run watch /home/user/my-project
 
 To stop the watcher, press `Ctrl+C` for graceful shutdown.
 
-### Starting the API Server
+### Starting the Services
 
-The server starts automatically with the setup scripts, or manually:
+The services start automatically with the setup scripts:
 
 ```bash
-# Development
+# Development mode (includes file watcher and MCP server)
 npm run dev
 
-# Production
+# Production mode
 npm run prod
 
-# Basic server
-npm run server
+# Development with entrypoint
+npm run dev:entrypoint
 ```
 
-The server will start on port 8080 (configurable via `PORT` env var) with the following endpoints:
+The system will start the following services:
+- **File Watcher**: Monitors repository for changes and processes files automatically
+- **MCP HTTP Server**: Provides AI assistant integration on port 3000 (configurable via `MCP_PORT`)
 
-### API Endpoints
+### MCP HTTP Endpoints
 
 #### Health & Status
-- `GET /health` - Application health check
+- `GET /health` - MCP server health check
 
-#### Chat Interface
-- `GET /chat/query/:query_id?description=<query>` - Stream AI responses with tool integration
-
-#### Function Search
-- `GET /functions/search?description=<description>` - Find functions by semantic similarity
-- `GET /functions/:id` - Get detailed function information with call graph
-
-#### Query Planning
-- `GET /decide?queryText=<query>` - Determine whether to use graph or vector search
-- `GET /plan?userQuery=<query>&description=<desc>&decision=<type>` - Execute planned query
-- `PUT /prompt` - Stream natural language answers based on graph data
-
-#### Vector Search
-- `GET /vector?text=<query>` - Direct vector search interface
+#### MCP Protocol
+- `POST /mcp` - Main MCP endpoint for client-server communication
+- `GET /mcp` - Server-to-client notifications via SSE
+- `DELETE /mcp` - Session termination
 
 **Example Health Check:**
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:3000/health
 ```
 
 Response:
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "environment": "development",
-  "port": 8080
+  "status": "ok",
+  "service": "GraphSense MCP HTTP Server (Fastify)",
+  "version": "1.0.0",
+  "activeSessions": 0
 }
 ```
 
 ### MCP Integration
 
-The system supports Model Context Protocol for integration with AI assistants:
+The system provides an HTTP-based MCP server for integration with AI assistants:
 
 ```bash
+# Start MCP HTTP server
 node build/mcp.js
+
+# Or with custom port
+MCP_PORT=4000 node build/mcp.js
 ```
 
 Available MCP tools:
@@ -399,14 +405,11 @@ Hybrid search approach:
 
 ```
 src/
-├── api.ts          # Main API server and endpoints
 ├── db.ts           # Database setup and connections
 ├── env.ts          # Environment configuration
 ├── index.ts        # Main indexing logic
-├── infer.ts        # Direct inference utilities
-├── mcp.ts          # Model Context Protocol server
+├── mcp.ts          # Model Context Protocol HTTP server
 ├── parse.ts        # Code parsing and AI processing
-├── planner.ts      # Query planning and execution
 └── watcher.ts      # File watcher for real-time analysis
 ```
 
@@ -416,8 +419,8 @@ src/
 - **AI Processor**: Function summarization using Gemini
 - **Graph Builder**: Neo4j relationship construction
 - **Vector Indexer**: Pinecone embedding storage
-- **Query Planner**: Intelligent routing between graph and vector search
-- **Streaming API**: Real-time response streaming
+- **MCP HTTP Server**: Model Context Protocol server for AI assistant integration
+- **File Watcher**: Real-time code analysis and indexing
 
 ### Building
 
@@ -463,8 +466,8 @@ npm run docker:logs
 
 **Application Not Starting:**
 ```bash
-# Check health
-npm run health
+# Check MCP server health
+curl http://localhost:3000/health
 
 # View detailed logs
 npm run docker:logs
@@ -499,13 +502,14 @@ npm run docker:logs
 
 4. **Port Conflicts**
    ```bash
-   # Change port in .env
-   PORT=3000 npm run dev
+   # Change MCP port
+   MCP_PORT=4000 npm run dev
    ```
 
 ### Getting Help
 
 1. **Check Documentation**
+   - [MIGRATION.md](MIGRATION.md) - Migration guide for API to MCP HTTP transition
    - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment configuration
    - `.env.template` - Configuration template
 
@@ -519,6 +523,9 @@ npm run docker:logs
    ```bash
    # Enable debug logging
    DEBUG=graphsense:* npm run dev
+
+   # Check MCP server status
+   curl http://localhost:3000/health
 
    # Check service status
    npm run docker:logs

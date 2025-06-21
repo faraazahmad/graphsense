@@ -18,7 +18,11 @@
     "env:validate": "node scripts/validate-env.js",
     "db:test": "node scripts/test-db.js",
     "health": "curl -f http://localhost:${PORT:-8080}/health || echo 'Service not running'",
-    "watch": "npm run build && node build/watcher.js"
+    "watch": "npm run build && node build/watcher.js",
+    "mcp:stdio": "npm run build && node build/mcp.js",
+    "mcp:http": "npm run build && node build/mcp-http.js",
+    "mcp:http:fastify": "npm run build && node build/mcp-http-fastify.js",
+    "mcp:test": "npm run build && node build/mcp-client-example.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.10",
@@ -26,9 +30,11 @@
     "@fastify/cors": "^11.0.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@pinecone-database/pinecone": "^5.1.2",
+    "@types/express": "^5.0.3",
     "ai": "^4.3.4",
     "cohere-ai": "^7.17.1",
     "dotenv": "^16.5.0",
+    "express": "^5.1.0",
     "fastify": "^5.3.0",
     "fastify-sse-v2": "^4.2.1",
     "glob": "^11.0.3",

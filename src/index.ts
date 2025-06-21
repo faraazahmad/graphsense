@@ -105,31 +105,6 @@ function traverseNodes(filePath: string, node: Node): void | ImportData[] {
     }
 
     parseFunctionDeclaration(functionNode, false);
-    // executeQuery(
-    //   `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
-    //   {
-    //     path: cleanPath(node.getSourceFile().fileName),
-    //     name: functionNode.name?.escapedText,
-    //   },
-    // )
-    //   .then(async (result) => {
-    //     const fileId = result.records.map((rec) => rec.get("id"));
-    //     const fxn = await db.relational.client!.query(
-    //       `select id from functions where id = $1 limit 1`,
-    //       [fileId[0]],
-    //     );
-    //     if (fxn.rows.length) {
-    //       return;
-    //     }
-
-    //     parseFunctionDeclaration(functionNode, false);
-    //   })
-    //   .catch((err) => {
-    //     console.log(functionNode.name?.escapedText);
-    //     console.log(functionNode.getSourceFile().fileName);
-    //     console.error(err);
-    //     process.exit(-1);
-    //   });
   }
   return result;
 }

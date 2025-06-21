@@ -16,7 +16,7 @@ Or choose your preferred method:
 # Local development
 ./quick-start.sh dev
 
-# Docker development  
+# Docker development
 ./quick-start.sh docker
 
 # Production deployment
@@ -47,7 +47,33 @@ npm run prod
 - **Dependency Tracking**: Understand import relationships and function call hierarchies
 - **AI-Powered Summaries**: Automatically generates summaries for functions using AI
 - **Real-time Analysis**: Processes codebases incrementally with file watching
-- **MCP Integration**: Supports Model Context Protocol for AI assistant integration
+- **MCP Integration**: Supports Model Context Protocol for AI assistant integration (over HTTP)
+
+## Model Context Protocol (MCP) Integration
+
+GraphSense provides MCP servers to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
+
+#### MCP Server
+
+```bash
+npm run mcp
+```
+
+### Available MCP Tools
+
+- **`similar_functions`** - Find functions based on semantic description
+- **`function_callers`** - Find functions that call a specific function
+- **`function_callees`** - Find functions called by a specific function
+- **`function_details`** - Get detailed information about a function
+
+### Testing MCP Integration
+
+```bash
+npm run mcp:test
+
+# Check server health
+curl http://localhost:3000/health
+```
 
 ## Architecture
 
@@ -104,7 +130,7 @@ cd code-graph-rag
    # Copy template and edit with your values
    cp .env.template .env
    nano .env
-   
+
    # Validate configuration
    npm run env:validate
    ```
@@ -130,7 +156,7 @@ cd code-graph-rag
 
 Required variables (must be set):
 - `GOOGLE_GENERATIVE_AI_API_KEY` - Gemini API key
-- `ANTHROPIC_API_KEY` - Claude API key  
+- `ANTHROPIC_API_KEY` - Claude API key
 - `CO_API_KEY` - Cohere API key
 - `PINECONE_API_KEY` - Pinecone API key
 
@@ -151,12 +177,12 @@ postgres:
   image: pgvector/pgvector:pg16
   environment:
     - POSTGRES_DB=graphsense
-    - POSTGRES_USER=postgres  
+    - POSTGRES_USER=postgres
     - POSTGRES_PASSWORD=postgres
   ports:
     - "5432:5432"
 
-# Neo4j graph database  
+# Neo4j graph database
 neo4j:
   image: neo4j:latest
   environment:
@@ -268,7 +294,7 @@ The server starts automatically with the setup scripts, or manually:
 # Development
 npm run dev
 
-# Production  
+# Production
 npm run prod
 
 # Basic server
@@ -282,7 +308,7 @@ The server will start on port 8080 (configurable via `PORT` env var) with the fo
 #### Health & Status
 - `GET /health` - Application health check
 
-#### Chat Interface  
+#### Chat Interface
 - `GET /chat/query/:query_id?description=<query>` - Stream AI responses with tool integration
 
 #### Function Search
@@ -459,7 +485,7 @@ npm run docker:logs
    # Restart Docker services
    npm run docker:stop
    npm run docker:start
-   
+
    # Complete cleanup and restart
    npm run docker:cleanup
    npm run docker:setup
@@ -482,18 +508,18 @@ npm run docker:logs
 1. **Check Documentation**
    - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment configuration
    - `.env.template` - Configuration template
-   
+
 2. **Validation Tools**
    ```bash
    npm run env:validate  # Validate configuration
    npm run health        # Check application health
    ```
 
-3. **Debug Information**  
+3. **Debug Information**
    ```bash
    # Enable debug logging
    DEBUG=graphsense:* npm run dev
-   
+
    # Check service status
    npm run docker:logs
    ```
@@ -501,7 +527,7 @@ npm run docker:logs
 ### Performance Optimization
 
 - Use incremental indexing for large repositories
-- Adjust batch sizes for vector operations  
+- Adjust batch sizes for vector operations
 - Configure database connection pools
 - Monitor API rate limits
 - Use production environment variables for better performance

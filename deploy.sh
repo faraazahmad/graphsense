@@ -2,6 +2,9 @@
 
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,7 +40,8 @@ COMMANDS:
 
 OPTIONS:
     --port <port>                      Base port for the instance (default: auto-assigned)
-    --env-file <file>                  Environment file to use
+    --co-api-key <key>                 Cohere API key for the application
+    --anthropic-api-key <key>          Anthropic API key for the application
     --rebuild                          Force rebuild of the application image
 
 EXAMPLES:
@@ -211,10 +215,9 @@ deploy_instance() {
     local repo_path=$1
     local instance_name=$2
     local base_port=$3
-    local env_file=$4
-    local google_api_key=$6
-    local anthropic_api_key=$7
-    local rebuild=$8
+    local co_api_key=$4
+    local anthropic_api_key=$5
+    local rebuild=$6
 
     # Validate repo path
     if [[ ! -d "$repo_path" ]]; then
@@ -280,9 +283,13 @@ RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW=900000
 EOF
 
-    # Add custom env file if provided
-    if [[ -n "$env_file" && -f "$env_file" ]]; then
-        cat "$env_file" >> "$temp_env"
+    # Add API keys if provided
+    if [[ -n "$co_api_key" ]]; then
+        echo "CO_API_KEY=$co_api_key" >> "$temp_env"
+    fi
+    
+    if [[ -n "$anthropic_api_key" ]]; then
+        echo "ANTHROPIC_API_KEY=$anthropic_api_key" >> "$temp_env"
     fi
 
     # Create instance-specific docker-compose override
@@ -344,7 +351,7 @@ EOF
     # Build image if rebuild flag is set
     if [[ "$rebuild" == "true" ]]; then
         log_info "Rebuilding application image..."
-        docker-compose build --no-cache
+        docker-compose -f "$SCRIPT_DIR/docker-compose.yml" build --no-cache
     fi
 
     # Deploy the instance
@@ -354,7 +361,7 @@ EOF
     export COMPOSE_PROJECT_NAME="$instance_name"
 
     if ! docker-compose \
-        -f docker-compose.yml \
+        -f "$SCRIPT_DIR/docker-compose.yml" \
         -f "$compose_override" \
         --env-file "$temp_env" \
         up -d; then
@@ -371,8 +378,8 @@ EOF
 
     while [[ $attempt -lt $max_attempts ]]; do
         # Check if all services are healthy
-        local healthy_count=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps --services | wc -l)
-        local running_healthy=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps | grep -c "healthy\|Up" || echo "0")
+        local healthy_count=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps --services | wc -l)
+        local running_healthy=$(COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps | grep -c "healthy\|Up" || echo "0")
 
         if [[ $running_healthy -ge $healthy_count ]]; then
             all_healthy=true
@@ -386,7 +393,7 @@ EOF
 
     if [[ "$all_healthy" != "true" ]]; then
         log_warning "Not all services became healthy within timeout, but continuing..."
-        COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps
     fi
 
     # Cleanup temporary files
@@ -409,7 +416,7 @@ stop_instance() {
     fi
 
     log_info "Stopping instance: $instance_name"
-    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose stop; then
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" stop; then
         log_error "Failed to stop instance $instance_name"
         exit 1
     fi
@@ -426,7 +433,7 @@ start_instance() {
     fi
 
     log_info "Starting instance: $instance_name"
-    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose start; then
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" start; then
         log_error "Failed to start instance $instance_name"
         exit 1
     fi
@@ -453,7 +460,7 @@ remove_instance() {
     log_info "Removing instance: $instance_name"
 
     # Stop and remove containers
-    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose down -v --remove-orphans; then
+    if ! COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" down -v --remove-orphans; then
         log_warning "Failed to cleanly remove instance with docker-compose, trying manual cleanup..."
 
         # Manual cleanup as fallback
@@ -494,9 +501,9 @@ show_logs() {
     fi
 
     if [[ -n "$service" ]]; then
-        COMPOSE_PROJECT_NAME="$instance_name" docker-compose logs -f "$service"
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" logs -f "$service"
     else
-        COMPOSE_PROJECT_NAME="$instance_name" docker-compose logs -f
+        COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" logs -f
     fi
 }
 
@@ -512,7 +519,7 @@ show_status() {
     log_info "Status for instance: $instance_name"
 
     # Show docker-compose status
-    COMPOSE_PROJECT_NAME="$instance_name" docker-compose ps
+    COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps
 
     echo
     log_info "Container details:"
@@ -588,7 +595,8 @@ COMMAND=""
 REPO_PATH=""
 INSTANCE_NAME=""
 BASE_PORT=""
-ENV_FILE=""
+CO_API_KEY=""
+ANTHROPIC_API_KEY=""
 REBUILD=false
 
 while [[ $# -gt 0 ]]; do
@@ -601,8 +609,12 @@ while [[ $# -gt 0 ]]; do
             BASE_PORT=$2
             shift 2
             ;;
-        --env-file)
-            ENV_FILE=$2
+        --co-api-key)
+            CO_API_KEY=$2
+            shift 2
+            ;;
+        --anthropic-api-key)
+            ANTHROPIC_API_KEY=$2
             shift 2
             ;;
         --rebuild)
@@ -647,7 +659,7 @@ case $COMMAND in
             log_error "Repository path is required for deploy command."
             exit 1
         fi
-        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$ENV_FILE" "$GOOGLE_API_KEY" "$ANTHROPIC_API_KEY" "$REBUILD"
+        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY" "$REBUILD"
         ;;
     stop)
         if [[ -z "$INSTANCE_NAME" ]]; then

@@ -44,10 +44,8 @@ check_env_file() {
             echo
             echo -e "${YELLOW}⚠️  IMPORTANT: Please edit .env file with your actual values${NC}"
             echo -e "${BLUE}Required variables for Docker deployment:${NC}"
-            echo -e "   - GOOGLE_GENERATIVE_AI_API_KEY"
             echo -e "   - ANTHROPIC_API_KEY"
             echo -e "   - CO_API_KEY"
-            echo -e "   - PINECONE_API_KEY"
             echo
             read -p "Press Enter to continue after editing .env file, or Ctrl+C to exit..."
         else

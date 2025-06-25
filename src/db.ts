@@ -1,24 +1,13 @@
 import "dotenv/config";
 import neo4j, { Driver } from "neo4j-driver";
-import { Pinecone } from "@pinecone-database/pinecone";
 import { Client } from "pg";
 import {
-  getRepoQualifier,
-  REPO_PATH,
-  PINECONE_API_KEY,
   NEO4J_URI,
   NEO4J_USERNAME,
   NEO4J_PASSWORD,
 } from "./env";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-export const pc = new Pinecone({
-  apiKey: PINECONE_API_KEY,
-});
-
-const index = pc.index("llama-text-embed-v2-index");
-export const vectorNamespace = index.namespace(REPO_PATH);
 
 export async function executeQuery(query: string, variables: Object) {
   const session = db.graph.client!.session();

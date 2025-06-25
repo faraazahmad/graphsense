@@ -4,8 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { Hit } from "@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data";
-import { executeQuery, db, pc } from "./db";
+
+import { executeQuery, db } from "./db";
 import { getRepoQualifier, CO_API_KEY } from "./env";
 import { getRepoPath } from "./index";
 import { CohereClient } from "cohere-ai";
@@ -20,96 +20,69 @@ const fastify = Fastify({
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-interface ChunkOutput {
-  _id: string;
-  text: string;
-}
-interface SearchResult {
-  result: {
-    hits: Hit[];
-  };
-  usage: any;
-}
-/**
- * Get the unique hits from two search results and return them as single array of {'_id', 'chunk_text'} dicts.
- */
-export function mergeChunks(h1: SearchResult, h2: SearchResult): ChunkOutput[] {
-  // Deduplicate by _id
-  const hitsMap = new Map<string, Hit>();
 
-  // Combine hits from both results
-  [...h1.result.hits, ...h2.result.hits].forEach((hit) => {
-    hitsMap.set(hit._id, hit);
-  });
-
-  // Convert map values to array
-  const deduped = Array.from(hitsMap.values());
-
-  // Sort by _score descending
-  const sortedHits = deduped.sort((a, b) => b._score - a._score);
-
-  // Transform to format for reranking
-  const result = sortedHits.map((hit) => ({
-    _id: hit._id,
-    text: (hit.fields as any).text,
-  }));
-
-  return result;
-}
 export async function getSimilarFunctions(description: string) {
   console.log(description);
-  const namespace = getRepoQualifier(getRepoPath()).replace("/", "-");
-  const denseIndex = pc.index("graphsense-dense").namespace(namespace);
-  const sparseIndex = pc.index("graphsense-sparse").namespace(namespace);
-
-  let denseResults;
-  let sparseResults;
+  
+  // Generate embedding for the search query using Cohere
+  const embeddingResponse = await cohere.v2.embed({
+    model: "embed-english-v3.0",
+    texts: [description],
+    inputType: "search_query",
+    embeddingTypes: ["float"]
+  });
+  
+  const queryEmbedding = embeddingResponse.embeddings.float![0];
+  
   const topK = 10;
-  await Promise.all([
-    denseIndex
-      .searchRecords({
-        query: { inputs: { text: description }, topK },
-        fields: ["id", "text"],
-      })
-      .then((res) => (denseResults = res)),
+  
+  // Use pgvector cosine similarity to find similar functions
+  const similarityResults = await db.relational.client!.query(`
+    SELECT 
+      id, 
+      summary, 
+      path, 
+      name,
+      1 - (embedding <=> $1::vector) as similarity_score
+    FROM functions 
+    WHERE embedding IS NOT NULL 
+      AND summary IS NOT NULL
+    ORDER BY embedding <=> $1::vector
+    LIMIT $2
+  `, [JSON.stringify(queryEmbedding), topK]);
 
-    sparseIndex
-      .searchRecords({
-        query: { inputs: { text: description }, topK },
-        fields: ["id", "text"],
-      })
-      .then((res) => (sparseResults = res)),
-  ]);
+  // Extract results for reranking
+  const results = similarityResults.rows.map((row) => ({
+    id: row.id,
+    text: row.summary,
+    path: row.path,
+    name: row.name,
+    similarity_score: row.similarity_score
+  }));
 
-  const mergedResults = mergeChunks(denseResults!, sparseResults!);
+  if (results.length === 0) {
+    return [];
+  }
+
+  // Rerank using Cohere
   const cohereResponse = await cohere.v2.rerank({
     model: "rerank-v3.5",
     query: description,
-    topN: topK,
-    documents: mergedResults.map((res) => res.text),
+    topN: Math.min(topK, results.length),
+    documents: results.map((res) => res.text),
   });
 
+  // Map reranked results back to function data
   const reRanked = cohereResponse.results.map(
-    (row) => mergedResults[row.index],
+    (row) => results[row.index],
   );
-  const rankedIds = reRanked.map((row) => row._id);
-  const ids = rankedIds.map((id) => `'${id}'`).join(",");
 
-  const functionsResult = await db.relational.client!.query(
-    `SELECT id, path, name FROM functions where id in (${ids});`,
-  );
-  const functionsMap: any = {};
-  for (const func of functionsResult.rows) {
-    functionsMap[func.id] = func;
-  }
+  const rankedFunctions = reRanked.map((func) => ({
+    id: func.id,
+    path: func.path,
+    name: func.name,
+  }));
 
-  const rankedFunctions = rankedIds
-    .map((id) => ({
-      id: functionsMap[id]?.id,
-      path: functionsMap[id]?.path,
-      name: functionsMap[id]?.name,
-    }))
-    .filter((func) => func.name);
   return Promise.resolve(rankedFunctions);
 }
 

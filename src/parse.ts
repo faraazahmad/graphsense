@@ -6,9 +6,10 @@ import {
   Node,
 } from "typescript";
 import { generateText, GenerateTextResult } from "ai";
-import { db, executeQuery, pc } from "./db";
+import { db, executeQuery } from "./db";
 import { cleanPath, getRepoPath } from ".";
-import { claude, gemini, getRepoQualifier } from "./env";
+import { claude, getRepoQualifier, CO_API_KEY } from "./env";
+import { CohereClient } from "cohere-ai";
 import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers";
 
@@ -91,6 +92,8 @@ export async function parseFunctionDeclaration(
   );
 }
 
+const cohere = new CohereClient({ token: CO_API_KEY });
+
 export async function processFunctionWithAI(functionData: any) {
   const { id: functionNodeId, name, path, start_line, end_line } = functionData;
   console.log(
@@ -136,42 +139,25 @@ export async function processFunctionWithAI(functionData: any) {
     }
   } while (failed);
 
-  const namespace = getRepoQualifier(getRepoPath()).replace("/", "-");
-  await Promise.all([
-    pc
-      .index("graphsense-dense")
-      .namespace(namespace)
-      .upsertRecords([
-        {
-          id: functionNodeId,
-          text: summary,
-        },
-      ]),
-    pc
-      .index("graphsense-sparse")
-      .namespace(namespace)
-      .upsertRecords([
-        {
-          id: functionNodeId,
-          text: summary,
-        },
-      ]),
-  ]);
+  // Generate embeddings using Cohere
+  const embeddingResponse = await cohere.v2.embed({
+    model: "embed-english-v3.0",
+    texts: [summary],
+    inputType: "search_document",
+    embeddingTypes: ["float"]
+  });
+  
+  const embedding = embeddingResponse.embeddings.float![0];
+  db.relational.client!.query(
+    `
+      UPDATE functions
+      SET summary = $2, embedding = $3
+      WHERE id = $1;
+    `,
+    [functionNodeId, summary, JSON.stringify(embedding)],
+  );
 
-  try {
-    await db.relational.client!.query(
-      `
-        UPDATE functions
-        SET summary = $2
-        WHERE id = $1;
-      `,
-      [functionNodeId, summary],
-    );
-
-    console.log(`[${new Date().toUTCString()}]: Parsed function: ${name}`);
-  } catch (err) {
-    console.error(err);
-  }
+  console.log(`[${new Date().toUTCString()}]: Parsed function: ${name}`);
 }
 
 async function addCallsRelation(

@@ -72,10 +72,8 @@ services:
       - LOCAL_REPO_PATH=/home/repo
 
       # API Keys
-      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CO_API_KEY=${CO_API_KEY}
-      - PINECONE_API_KEY=${PINECONE_API_KEY}
 
       # Application Configuration
       - NODE_ENV=${NODE_ENV:-production}

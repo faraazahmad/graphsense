@@ -1,14 +1,11 @@
 import "dotenv/config";
 import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
 
 // Environment variable validation and type definitions
 interface EnvironmentConfig {
   // Required variables
   HOME_PATH: string;
-  GOOGLE_GENERATIVE_AI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
-  PINECONE_API_KEY: string;
   CO_API_KEY: string;
 
   // Optional variables with defaults
@@ -30,9 +27,7 @@ interface EnvironmentConfig {
 function validateRequiredEnvVars(): void {
   const requiredVars = [
     "HOME",
-    "GOOGLE_GENERATIVE_AI_API_KEY",
     "ANTHROPIC_API_KEY",
-    "PINECONE_API_KEY",
     "CO_API_KEY",
   ];
 
@@ -84,10 +79,7 @@ export const HOME_PATH = process.env.HOME as string;
 export const REPO_PATH = "/home/repo";
 
 // API Keys
-export const GOOGLE_GENERATIVE_AI_API_KEY = process.env
-  .GOOGLE_GENERATIVE_AI_API_KEY as string;
 export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY as string;
-export const PINECONE_API_KEY = process.env.PINECONE_API_KEY as string;
 export const CO_API_KEY = process.env.CO_API_KEY as string;
 
 // Application configuration
@@ -121,7 +113,6 @@ export const DEBUG = process.env.DEBUG || "";
 
 // AI model instances
 export const claude = anthropic("claude-3-5-sonnet-latest");
-export const gemini = google("gemini-2.0-flash-lite-preview-02-05");
 
 // Runtime environment information
 export const ENV_INFO = {

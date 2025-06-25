@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.10",
-    "@ai-sdk/google": "^1.2.11",
     "@fastify/cors": "^11.0.1",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@pinecone-database/pinecone": "^5.1.2",

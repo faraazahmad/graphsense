@@ -114,22 +114,7 @@ const requiredVars = [
       }
       return null;
     },
-  },
-  {
-    name: "PINECONE_API_KEY",
-    description: "Pinecone vector database API key",
-    example: "pcsk_...",
-    validator: (value) => {
-      if (!value) return "Value is required";
-      if (!value.startsWith("pcsk_") && !value.startsWith("pc-")) {
-        return 'Should start with "pcsk_" or "pc-"';
-      }
-      if (value.length < 30) {
-        return "Seems too short for a valid API key";
-      }
-      return null;
-    },
-  },
+  }
 ];
 
 // Optional environment variables with defaults

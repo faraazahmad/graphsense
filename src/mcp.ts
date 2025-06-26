@@ -20,36 +20,38 @@ const fastify = Fastify({
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-
 export async function getSimilarFunctions(description: string) {
   console.log(description);
-  
+
   // Generate embedding for the search query using Cohere
   const embeddingResponse = await cohere.v2.embed({
     model: "embed-english-v3.0",
     texts: [description],
     inputType: "search_query",
-    embeddingTypes: ["float"]
+    embeddingTypes: ["float"],
   });
-  
+
   const queryEmbedding = embeddingResponse.embeddings.float![0];
-  
+
   const topK = 10;
-  
+
   // Use pgvector cosine similarity to find similar functions
-  const similarityResults = await db.relational.client!.query(`
-    SELECT 
-      id, 
-      summary, 
-      path, 
+  const similarityResults = await db.relational.client!.query(
+    `
+    SELECT
+      id,
+      summary,
+      path,
       name,
       1 - (embedding <=> $1::vector) as similarity_score
-    FROM functions 
-    WHERE embedding IS NOT NULL 
+    FROM functions
+    WHERE embedding IS NOT NULL
       AND summary IS NOT NULL
     ORDER BY embedding <=> $1::vector
     LIMIT $2
-  `, [JSON.stringify(queryEmbedding), topK]);
+  `,
+    [JSON.stringify(queryEmbedding), topK],
+  );
 
   // Extract results for reranking
   const results = similarityResults.rows.map((row) => ({
@@ -57,7 +59,7 @@ export async function getSimilarFunctions(description: string) {
     text: row.summary,
     path: row.path,
     name: row.name,
-    similarity_score: row.similarity_score
+    similarity_score: row.similarity_score,
   }));
 
   if (results.length === 0) {
@@ -73,9 +75,7 @@ export async function getSimilarFunctions(description: string) {
   });
 
   // Map reranked results back to function data
-  const reRanked = cohereResponse.results.map(
-    (row) => results[row.index],
-  );
+  const reRanked = cohereResponse.results.map((row) => results[row.index]);
 
   const rankedFunctions = reRanked.map((func) => ({
     id: func.id,
@@ -481,7 +481,131 @@ const handleSessionRequest = async (request: any, reply: any) => {
 };
 
 // Handle GET requests for server-to-client notifications via SSE
-fastify.get("/mcp", handleSessionRequest);
+fastify.get("/mcp", async (request, reply) => {
+  try {
+    const sessionId = request.headers["mcp-session-id"] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      reply.status(400).send({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Invalid or missing session ID",
+        },
+        id: null,
+      });
+      return;
+    }
+
+    const transport = transports[sessionId];
+
+    // Set SSE headers
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Cache-Control",
+    });
+
+    // Send initial connection event
+    reply.raw.write('data: {"type":"connected"}\n\n');
+
+    // Convert Fastify request/reply to Express-like format with SSE support
+    const expressLikeReq = {
+      ...request,
+      headers: request.headers,
+      method: request.method,
+      url: request.url,
+    };
+
+    const expressLikeRes = {
+      status: (code: number) => {
+        // For SSE, we don't change status after headers are sent
+        return expressLikeRes;
+      },
+      json: (data: any) => {
+        // Send JSON data as SSE event
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+        return expressLikeRes;
+      },
+      send: (data: any) => {
+        // Send data as SSE event
+        const dataStr = typeof data === "string" ? data : JSON.stringify(data);
+        reply.raw.write(`data: ${dataStr}\n\n`);
+        return expressLikeRes;
+      },
+      setHeader: (name: string, value: string) => {
+        // Headers already sent for SSE
+        return expressLikeRes;
+      },
+      writeHead: (statusCode: number, headers?: any) => {
+        // Headers already sent for SSE
+        return expressLikeRes;
+      },
+      write: (chunk: any) => {
+        // Write as SSE data
+        const dataStr =
+          typeof chunk === "string" ? chunk : JSON.stringify(chunk);
+        reply.raw.write(`data: ${dataStr}\n\n`);
+        return expressLikeRes;
+      },
+      end: (data?: any) => {
+        if (data) {
+          const dataStr =
+            typeof data === "string" ? data : JSON.stringify(data);
+          reply.raw.write(`data: ${dataStr}\n\n`);
+        }
+        reply.raw.end();
+        return expressLikeRes;
+      },
+      on: (event: string, listener: (...args: any[]) => void) => {
+        reply.raw.on(event, listener);
+        return expressLikeRes;
+      },
+      headersSent: true, // Headers are always sent for SSE
+    };
+
+    // Handle client disconnect
+    request.raw.on("close", () => {
+      console.log(`SSE client disconnected for session: ${sessionId}`);
+    });
+
+    request.raw.on("error", (err) => {
+      console.error(`SSE client error for session ${sessionId}:`, err);
+    });
+
+    // Keep connection alive with periodic heartbeat
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.destroyed) {
+        reply.raw.write(": heartbeat\n\n");
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 30000); // Send heartbeat every 30 seconds
+
+    // Clean up heartbeat on connection close
+    reply.raw.on("close", () => {
+      clearInterval(heartbeat);
+    });
+
+    await transport.handleRequest(expressLikeReq as any, expressLikeRes as any);
+  } catch (error) {
+    console.error("Error handling MCP SSE request:", error);
+    if (!reply.raw.destroyed) {
+      reply.raw.write(
+        `data: ${JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error",
+          },
+          id: null,
+        })}\n\n`,
+      );
+      reply.raw.end();
+    }
+  }
+});
 
 // Handle DELETE requests for session termination
 fastify.delete("/mcp", handleSessionRequest);

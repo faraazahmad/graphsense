@@ -287,7 +287,7 @@ EOF
     if [[ -n "$co_api_key" ]]; then
         echo "CO_API_KEY=$co_api_key" >> "$temp_env"
     fi
-    
+
     if [[ -n "$anthropic_api_key" ]]; then
         echo "ANTHROPIC_API_KEY=$anthropic_api_key" >> "$temp_env"
     fi
@@ -516,12 +516,6 @@ show_status() {
         exit 1
     fi
 
-    log_info "Status for instance: $instance_name"
-
-    # Show docker-compose status
-    COMPOSE_PROJECT_NAME="$instance_name" docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps
-
-    echo
     log_info "Container details:"
     docker ps --filter "label=com.docker.compose.project=$instance_name" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }

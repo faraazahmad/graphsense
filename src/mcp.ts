@@ -1,8 +1,6 @@
 import Fastify from "fastify";
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { executeQuery, db } from "./db";
@@ -16,9 +14,6 @@ const cohere = new CohereClient({ token: CO_API_KEY });
 const fastify = Fastify({
   logger: true,
 });
-
-// Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
 export async function getSimilarFunctions(description: string) {
   console.log(description);
@@ -89,7 +84,7 @@ export async function getSimilarFunctions(description: string) {
 // Create and configure MCP server
 function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: "GraphSense MCP HTTP (Fastify)",
+    name: "GraphSense MCP Server",
     version: "1.0.0",
   });
 
@@ -272,53 +267,21 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-// Handle POST requests for client-to-server communication
-fastify.post("/mcp", async (request, reply) => {
+// Handle all MCP requests (POST, GET, DELETE)
+fastify.all("/mcp", async (request, reply) => {
   try {
-    // Check for existing session ID
-    const sessionId = request.headers["mcp-session-id"] as string | undefined;
-    let transport: StreamableHTTPServerTransport;
+    // Create a new transport for each request
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
+    });
 
-    if (sessionId && transports[sessionId]) {
-      // Reuse existing transport
-      transport = transports[sessionId];
-    } else if (!sessionId && isInitializeRequest(request.body)) {
-      // New initialization request
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
-          // Store the transport by session ID
-          transports[sessionId] = transport;
-          console.log(`New MCP session initialized: ${sessionId}`);
-        },
-      });
+    // Create server instance
+    const server = createMcpServer();
 
-      // Clean up transport when closed
-      transport.onclose = () => {
-        if (transport.sessionId) {
-          console.log(`MCP session closed: ${transport.sessionId}`);
-          delete transports[transport.sessionId];
-        }
-      };
+    // Connect server to transport
+    await server.connect(transport);
 
-      const server = createMcpServer();
-      // Connect to the MCP server
-      await server.connect(transport);
-    } else {
-      // Invalid request
-      reply.status(400).send({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message:
-            "Bad Request: No valid session ID provided or not an initialize request",
-        },
-        id: null,
-      });
-      return;
-    }
-
-    // Convert Fastify request/reply to Express-like format for the transport
+    // Convert Fastify request/reply to Express-like format
     const expressLikeReq = {
       ...request,
       headers: request.headers,
@@ -372,14 +335,17 @@ fastify.post("/mcp", async (request, reply) => {
       headersSent: reply.sent,
     };
 
-    // Handle the request
+    // Handle the request through the transport
     await transport.handleRequest(
       expressLikeReq as any,
       expressLikeRes as any,
       request.body,
     );
+
+    // Clean up
+    server.close();
   } catch (error) {
-    console.error("Error handling MCP POST request:", error);
+    console.error("Error handling MCP request:", error);
     if (!reply.sent) {
       reply.status(500).send({
         jsonrpc: "2.0",
@@ -392,231 +358,13 @@ fastify.post("/mcp", async (request, reply) => {
     }
   }
 });
-
-// Reusable handler for GET and DELETE requests
-const handleSessionRequest = async (request: any, reply: any) => {
-  try {
-    const sessionId = request.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-      reply.status(400).send({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Invalid or missing session ID",
-        },
-        id: null,
-      });
-      return;
-    }
-
-    const transport = transports[sessionId];
-
-    // Convert Fastify request/reply to Express-like format
-    const expressLikeReq = {
-      ...request,
-      headers: request.headers,
-      method: request.method,
-      url: request.url,
-    };
-
-    const expressLikeRes = {
-      status: (code: number) => {
-        reply.status(code);
-        return expressLikeRes;
-      },
-      json: (data: any) => {
-        reply.send(data);
-        return expressLikeRes;
-      },
-      send: (data: any) => {
-        reply.send(data);
-        return expressLikeRes;
-      },
-      setHeader: (name: string, value: string) => {
-        reply.header(name, value);
-        return expressLikeRes;
-      },
-      writeHead: (statusCode: number, headers?: any) => {
-        reply.status(statusCode);
-        if (headers) {
-          Object.entries(headers).forEach(([key, value]) => {
-            reply.header(key, value as string);
-          });
-        }
-        return expressLikeRes;
-      },
-      write: (chunk: any) => {
-        reply.raw.write(chunk);
-        return expressLikeRes;
-      },
-      end: (data?: any) => {
-        if (data) {
-          reply.send(data);
-        } else {
-          reply.raw.end();
-        }
-        return expressLikeRes;
-      },
-      on: (event: string, listener: (...args: any[]) => void) => {
-        reply.raw.on(event, listener);
-        return expressLikeRes;
-      },
-      headersSent: reply.sent,
-    };
-
-    await transport.handleRequest(expressLikeReq as any, expressLikeRes as any);
-  } catch (error) {
-    console.error("Error handling MCP session request:", error);
-    if (!reply.sent) {
-      reply.status(500).send({
-        jsonrpc: "2.0",
-        error: {
-          code: -32603,
-          message: "Internal server error",
-        },
-        id: null,
-      });
-    }
-  }
-};
-
-// Handle GET requests for server-to-client notifications via SSE
-fastify.get("/mcp", async (request, reply) => {
-  try {
-    const sessionId = request.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-      reply.status(400).send({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Invalid or missing session ID",
-        },
-        id: null,
-      });
-      return;
-    }
-
-    const transport = transports[sessionId];
-
-    // Set SSE headers
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Cache-Control",
-    });
-
-    // Send initial connection event
-    reply.raw.write('data: {"type":"connected"}\n\n');
-
-    // Convert Fastify request/reply to Express-like format with SSE support
-    const expressLikeReq = {
-      ...request,
-      headers: request.headers,
-      method: request.method,
-      url: request.url,
-    };
-
-    const expressLikeRes = {
-      status: (code: number) => {
-        // For SSE, we don't change status after headers are sent
-        return expressLikeRes;
-      },
-      json: (data: any) => {
-        // Send JSON data as SSE event
-        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-        return expressLikeRes;
-      },
-      send: (data: any) => {
-        // Send data as SSE event
-        const dataStr = typeof data === "string" ? data : JSON.stringify(data);
-        reply.raw.write(`data: ${dataStr}\n\n`);
-        return expressLikeRes;
-      },
-      setHeader: (name: string, value: string) => {
-        // Headers already sent for SSE
-        return expressLikeRes;
-      },
-      writeHead: (statusCode: number, headers?: any) => {
-        // Headers already sent for SSE
-        return expressLikeRes;
-      },
-      write: (chunk: any) => {
-        // Write as SSE data
-        const dataStr =
-          typeof chunk === "string" ? chunk : JSON.stringify(chunk);
-        reply.raw.write(`data: ${dataStr}\n\n`);
-        return expressLikeRes;
-      },
-      end: (data?: any) => {
-        if (data) {
-          const dataStr =
-            typeof data === "string" ? data : JSON.stringify(data);
-          reply.raw.write(`data: ${dataStr}\n\n`);
-        }
-        reply.raw.end();
-        return expressLikeRes;
-      },
-      on: (event: string, listener: (...args: any[]) => void) => {
-        reply.raw.on(event, listener);
-        return expressLikeRes;
-      },
-      headersSent: true, // Headers are always sent for SSE
-    };
-
-    // Handle client disconnect
-    request.raw.on("close", () => {
-      console.log(`SSE client disconnected for session: ${sessionId}`);
-    });
-
-    request.raw.on("error", (err) => {
-      console.error(`SSE client error for session ${sessionId}:`, err);
-    });
-
-    // Keep connection alive with periodic heartbeat
-    const heartbeat = setInterval(() => {
-      if (!reply.raw.destroyed) {
-        reply.raw.write(": heartbeat\n\n");
-      } else {
-        clearInterval(heartbeat);
-      }
-    }, 30000); // Send heartbeat every 30 seconds
-
-    // Clean up heartbeat on connection close
-    reply.raw.on("close", () => {
-      clearInterval(heartbeat);
-    });
-
-    await transport.handleRequest(expressLikeReq as any, expressLikeRes as any);
-  } catch (error) {
-    console.error("Error handling MCP SSE request:", error);
-    if (!reply.raw.destroyed) {
-      reply.raw.write(
-        `data: ${JSON.stringify({
-          jsonrpc: "2.0",
-          error: {
-            code: -32603,
-            message: "Internal server error",
-          },
-          id: null,
-        })}\n\n`,
-      );
-      reply.raw.end();
-    }
-  }
-});
-
-// Handle DELETE requests for session termination
-fastify.delete("/mcp", handleSessionRequest);
 
 // Health check endpoint
 fastify.get("/health", async (request, reply) => {
   return {
     status: "ok",
-    service: "GraphSense MCP HTTP Server (Fastify)",
+    service: "GraphSense MCP Server",
     version: "1.0.0",
-    activeSessions: Object.keys(transports).length,
   };
 });
 
@@ -634,9 +382,7 @@ if (require.main === module) {
       });
 
       await fastify.listen({ port: PORT, host: HOST });
-      console.log(
-        `GraphSense MCP HTTP Server (Fastify) listening on http://${HOST}:${PORT}`,
-      );
+      console.log(`GraphSense MCP Server listening on http://${HOST}:${PORT}`);
       console.log(`Health check available at: http://${HOST}:${PORT}/health`);
       console.log(`MCP endpoint available at: http://${HOST}:${PORT}/mcp`);
     } catch (err) {

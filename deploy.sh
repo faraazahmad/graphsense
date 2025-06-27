@@ -13,9 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-DEFAULT_BASE_PORT=8080
-DEFAULT_POSTGRES_PORT=5432
-DEFAULT_NEO4J_BOLT_PORT=7687
+DEFAULT_APP_PORT=8080
 
 # Help function
 show_help() {
@@ -79,40 +77,6 @@ get_next_port() {
     echo $port
 }
 
-# Find available base port where all required ports are free
-find_available_port_set() {
-    local base_port=${1:-$DEFAULT_BASE_PORT}
-    local port=$base_port
-
-    while true; do
-        # Check if all required ports are available
-        local app_port=$port
-        local postgres_port=$((port + 100))
-        local neo4j_http_port=$((port + 200))
-        local neo4j_bolt_port=$((port + 201))
-
-        # Check if any of the required ports are in use
-        if netstat -an 2>/dev/null | grep -q ":$app_port " || \
-           netstat -an 2>/dev/null | grep -q ":$postgres_port " || \
-           netstat -an 2>/dev/null | grep -q ":$neo4j_http_port " || \
-           netstat -an 2>/dev/null | grep -q ":$neo4j_bolt_port "; then
-            # At least one port is in use, try next set
-            ((port += 10))  # Skip by 10 to avoid conflicts
-        else
-            # All ports are available
-            break
-        fi
-
-        # Safety check to avoid infinite loop
-        if [[ $port -gt 65000 ]]; then
-            log_error "Unable to find available port set starting from $base_port"
-            exit 1
-        fi
-    done
-
-    echo $port
-}
-
 # Generate instance name from repo path
 generate_instance_name() {
     local repo_path=$1
@@ -136,7 +100,7 @@ instance_exists() {
 deploy_instance() {
     local repo_path=$1
     local instance_name=$2
-    local base_port=$3
+    local app_port=$3
     local co_api_key=$4
     local anthropic_api_key=$5
 
@@ -165,10 +129,10 @@ deploy_instance() {
         exit 1
     fi
 
-    # Get available ports (find a base port where all required ports are free)
-    local app_port=$(find_available_port_set ${base_port:-$DEFAULT_BASE_PORT})
-    local postgres_port=$((app_port + 100))
-    local neo4j_bolt_port=$((app_port + 200))
+    # Get available port for app
+    if [[ -z "$app_port" ]]; then
+        app_port=$(get_next_port $DEFAULT_APP_PORT)
+    fi
 
     # Create temporary environment file
     local temp_env=$(mktemp)
@@ -178,13 +142,6 @@ REPO_PATH=$repo_path
 
 # Port Configuration
 PORT=$app_port
-POSTGRES_PORT=$postgres_port
-NEO4J_BOLT_PORT=$neo4j_bolt_port
-
-# Database Configuration
-POSTGRES_DB=${instance_name//-/_}_db
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
 
 # Neo4j Configuration
 NEO4J_AUTH=none
@@ -319,8 +276,6 @@ EOF
     log_success "Instance '$instance_name' deployed successfully!"
     log_info "Access URLs:"
     log_info "  MCP Server: http://localhost:$app_port"
-    log_info "  Neo4j Browser: http://localhost:$neo4j_http_port"
-    log_info "  PostgreSQL: localhost:$postgres_port"
 }
 
 # Stop instance
@@ -454,38 +409,19 @@ debug_ports() {
     docker ps --filter "label=com.docker.compose.project" --format "table {{.Names}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Ports}}" | grep graphsense || echo "No GraphSense compose projects detected"
 
     echo
-    log_info "Available port ranges starting from common bases:"
-    for base_port in 8080 8090 8100 8110 8120; do
-        local app_port=$base_port
-        local postgres_port=$((base_port + 100))
-        local neo4j_bolt_port=$((base_port + 201))
-
-        local conflicts=""
+    log_info "Available app ports starting from common bases:"
+    for app_port in 8080 8090 8100 8110 8120; do
         if netstat -an 2>/dev/null | grep -q ":$app_port "; then
-            conflicts="$conflicts APP:$app_port"
-        fi
-        if netstat -an 2>/dev/null | grep -q ":$postgres_port "; then
-            conflicts="$conflicts PG:$postgres_port"
-        fi
-        if netstat -an 2>/dev/null | grep -q ":$neo4j_bolt_port "; then
-            conflicts="$conflicts NEO4J-BOLT:$neo4j_bolt_port"
-        fi
-
-        if [[ -z "$conflicts" ]]; then
-            echo "  Base $base_port: ✅ AVAILABLE (App:$app_port, PG:$postgres_port, Neo4j:$neo4j_bolt_port)"
+            echo "  Port $app_port: ❌ IN USE"
         else
-            echo "  Base $base_port: ❌ CONFLICTS -$conflicts"
+            echo "  Port $app_port: ✅ AVAILABLE"
         fi
     done
 
     echo
-    log_info "Next available base port:"
-    local next_port=$(find_available_port_set 8080)
-    echo "  Recommended base port: $next_port"
-    echo "  Ports that will be used:"
-    echo "    - MCP Server: $next_port"
-    echo "    - PostgreSQL: $((next_port + 100))"
-    echo "    - Neo4j Bolt: $((next_port + 200))"
+    log_info "Next available app port:"
+    local next_port=$(get_next_port 8080)
+    echo "  Recommended app port: $next_port"
 }
 
 # Cleanup
@@ -500,7 +436,7 @@ cleanup() {
 COMMAND=""
 REPO_PATH=""
 INSTANCE_NAME=""
-BASE_PORT=""
+APP_PORT=""
 CO_API_KEY=""
 ANTHROPIC_API_KEY=""
 
@@ -511,7 +447,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --port)
-            BASE_PORT=$2
+            APP_PORT=$2
             shift 2
             ;;
         --co-api-key)
@@ -560,7 +496,7 @@ case $COMMAND in
             log_error "Repository path is required for deploy command."
             exit 1
         fi
-        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY"
+        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$APP_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY"
         ;;
     stop)
         if [[ -z "$INSTANCE_NAME" ]]; then

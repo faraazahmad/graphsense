@@ -1,11 +1,7 @@
 import "dotenv/config";
 import neo4j, { Driver } from "neo4j-driver";
 import { Client } from "pg";
-import {
-  NEO4J_URI,
-  NEO4J_USERNAME,
-  NEO4J_PASSWORD,
-} from "./env";
+import { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, POSTGRES_URL } from "./env";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -64,9 +60,7 @@ export async function setupDB(
   );
 
   // Connect to local PostgreSQL
-  const connectionString =
-    process.env.POSTGRES_URL ||
-    `postgresql://${process.env.POSTGRES_USER || "postgres"}:${process.env.POSTGRES_PASSWORD || "postgres"}@${process.env.POSTGRES_HOST || "localhost"}:${process.env.POSTGRES_PORT || 5432}/${process.env.POSTGRES_DB || "graphsense"}`;
+  const connectionString = POSTGRES_URL;
 
   try {
     db.relational.client = new Client(connectionString);

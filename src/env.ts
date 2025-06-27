@@ -25,11 +25,7 @@ interface EnvironmentConfig {
 
 // Validate required environment variables
 function validateRequiredEnvVars(): void {
-  const requiredVars = [
-    "HOME",
-    "ANTHROPIC_API_KEY",
-    "CO_API_KEY",
-  ];
+  const requiredVars = ["HOME", "ANTHROPIC_API_KEY", "CO_API_KEY"];
 
   const missingVars = requiredVars.filter((varName) => !process.env[varName]);
 
@@ -90,6 +86,9 @@ export const INDEX_FROM_SCRATCH = parseBoolean(
   process.env.INDEX_FROM_SCRATCH,
   false,
 );
+
+// Postgres configuration
+export const POSTGRES_URL = process.env.POSTGRES_URL;
 
 // Neo4j configuration
 export const NEO4J_URI = process.env.NEO4J_URI || "bolt://localhost:7687";

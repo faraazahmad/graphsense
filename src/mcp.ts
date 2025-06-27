@@ -267,8 +267,10 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-// Handle all MCP requests (POST, GET, DELETE)
-fastify.all("/mcp", async (request, reply) => {
+// Handle MCP POST requests
+fastify.post("/mcp", { 
+  bodyLimit: 1048576, // 1MB
+}, async (request, reply) => {
   try {
     // Create a new transport for each request
     const transport = new StreamableHTTPServerTransport({
@@ -339,7 +341,6 @@ fastify.all("/mcp", async (request, reply) => {
     await transport.handleRequest(
       expressLikeReq as any,
       expressLikeRes as any,
-      request.body,
     );
 
     // Clean up
@@ -355,6 +356,94 @@ fastify.all("/mcp", async (request, reply) => {
         },
         id: null,
       });
+    }
+  }
+});
+
+// Handle MCP GET/DELETE requests (for SSE and cleanup)
+fastify.route({
+  method: ['GET', 'DELETE'],
+  url: '/mcp',
+  handler: async (request, reply) => {
+    try {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
+      });
+
+      const server = createMcpServer();
+      await server.connect(transport);
+
+      const expressLikeReq = {
+        ...request,
+        headers: request.headers,
+        body: request.body,
+        method: request.method,
+        url: request.url,
+      };
+
+      const expressLikeRes = {
+        status: (code: number) => {
+          reply.status(code);
+          return expressLikeRes;
+        },
+        json: (data: any) => {
+          reply.send(data);
+          return expressLikeRes;
+        },
+        send: (data: any) => {
+          reply.send(data);
+          return expressLikeRes;
+        },
+        setHeader: (name: string, value: string) => {
+          reply.header(name, value);
+          return expressLikeRes;
+        },
+        writeHead: (statusCode: number, headers?: any) => {
+          reply.status(statusCode);
+          if (headers) {
+            Object.entries(headers).forEach(([key, value]) => {
+              reply.header(key, value as string);
+            });
+          }
+          return expressLikeRes;
+        },
+        write: (chunk: any) => {
+          reply.raw.write(chunk);
+          return expressLikeRes;
+        },
+        end: (data?: any) => {
+          if (data) {
+            reply.send(data);
+          } else {
+            reply.raw.end();
+          }
+          return expressLikeRes;
+        },
+        on: (event: string, listener: (...args: any[]) => void) => {
+          reply.raw.on(event, listener);
+          return expressLikeRes;
+        },
+        headersSent: reply.sent,
+      };
+
+      await transport.handleRequest(
+        expressLikeReq as any,
+        expressLikeRes as any,
+      );
+
+      server.close();
+    } catch (error) {
+      console.error("Error handling MCP request:", error);
+      if (!reply.sent) {
+        reply.status(500).send({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error",
+          },
+          id: null,
+        });
+      }
     }
   }
 });

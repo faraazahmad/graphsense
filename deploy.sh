@@ -40,7 +40,6 @@ OPTIONS:
     --port <port>                      Base port for the instance (default: auto-assigned)
     --co-api-key <key>                 Cohere API key for the application
     --anthropic-api-key <key>          Anthropic API key for the application
-    --rebuild                          Force rebuild of the application image
 
 EXAMPLES:
     $0 deploy /path/to/local/repository my-analysis
@@ -140,7 +139,6 @@ deploy_instance() {
     local base_port=$3
     local co_api_key=$4
     local anthropic_api_key=$5
-    local rebuild=$6
 
     # Validate repo path
     if [[ ! -d "$repo_path" ]]; then
@@ -269,11 +267,9 @@ volumes:
     name: ${instance_name}_app_repos
 EOF
 
-    # Build image if rebuild flag is set
-    if [[ "$rebuild" == "true" ]]; then
-        log_info "Rebuilding application image..."
-        docker-compose -f "$SCRIPT_DIR/docker-compose.yml" build --no-cache
-    fi
+    # Rebuild image
+    log_info "Rebuilding application image..."
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" build --no-cache
 
     # Deploy the instance
     log_info "Starting services for instance: $instance_name"
@@ -507,7 +503,6 @@ INSTANCE_NAME=""
 BASE_PORT=""
 CO_API_KEY=""
 ANTHROPIC_API_KEY=""
-REBUILD=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -526,10 +521,6 @@ while [[ $# -gt 0 ]]; do
         --anthropic-api-key)
             ANTHROPIC_API_KEY=$2
             shift 2
-            ;;
-        --rebuild)
-            REBUILD=true
-            shift
             ;;
         -h|--help)
             show_help
@@ -569,7 +560,7 @@ case $COMMAND in
             log_error "Repository path is required for deploy command."
             exit 1
         fi
-        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY" "$REBUILD"
+        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$BASE_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY"
         ;;
     stop)
         if [[ -z "$INSTANCE_NAME" ]]; then

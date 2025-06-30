@@ -74,7 +74,7 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
     do {
       try {
         const { text } = await generateText({
-          model: claude,
+          model: gemini,
           prompt: `Given the following function body, generate a summary for it: \`\`\`${functionText}\`\`\``,
         });
         summary = text.replace(new RegExp("<think>.*</think>"), "");
@@ -198,99 +198,99 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
 
 const cohere = new CohereClient({ token: CO_API_KEY });
 
-export async function processFunctionWithAI(functionData: any) {
-  const { id: functionNodeId, name, path, start_line, end_line } = functionData;
-  console.log(
-    `[${new Date().toUTCString()}]: Started parsing ${name}() with AI`,
-  );
+// export async function processFunctionWithAI(functionData: any) {
+//   const { id: functionNodeId, name, path, start_line, end_line } = functionData;
+//   console.log(
+//     `[${new Date().toUTCString()}]: Started parsing ${name}() with AI`,
+//   );
 
-  let functionText = "";
-  try {
-    const absolutePath = `${getRepoPath()}${path}`;
-    const fileContent = readFileSync(absolutePath, "utf-8");
+//   let functionText = "";
+//   try {
+//     const absolutePath = `${getRepoPath()}${path}`;
+//     const fileContent = readFileSync(absolutePath, "utf-8");
 
-    const lines = fileContent.split("\n");
-    functionText = lines.slice(start_line - 1, end_line).join("\n");
-  } catch (error) {
-    console.error(`Error reading function ${name} from ${path}:`, error);
-    return;
-  }
+//     const lines = fileContent.split("\n");
+//     functionText = lines.slice(start_line - 1, end_line).join("\n");
+//   } catch (error) {
+//     console.error(`Error reading function ${name} from ${path}:`, error);
+//     return;
+//   }
 
-  let waitTime = 1000;
-  let failed = false;
-  let summary: string = "";
-  do {
-    try {
-      if (failed) {
-        waitTime *= 2.5;
-        setTimeout(() => {}, waitTime);
+//   let waitTime = 1000;
+//   let failed = false;
+//   let summary: string = "";
+//   do {
+//     try {
+//       if (failed) {
+//         waitTime *= 2.5;
+//         setTimeout(() => {}, waitTime);
 
-        console.log(
-          `[${new Date().toUTCString()}]: Retrying parsing ${name}() after waiting ${waitTime / 1000} seconds.`,
-        );
-      }
+//         console.log(
+//           `[${new Date().toUTCString()}]: Retrying parsing ${name}() after waiting ${waitTime / 1000} seconds.`,
+//         );
+//       }
 
-      const { text } = await generateText({
-        model: gemini,
-        prompt: `Given the following function body, generate a 3 line summary for it: \`\`\`${functionText}\`\`\``,
-      });
-      summary = text.replace(new RegExp("<think>.*</think>"), "");
-    } catch (error: any) {
-      console.log(
-        `[${new Date().toUTCString()}]: Error while parsing ${name}()`,
-      );
-      failed = true;
-    }
-  } while (failed);
+//       const { text } = await generateText({
+//         model: gemini,
+//         prompt: `Given the following function body, generate a 3 line summary for it: \`\`\`${functionText}\`\`\``,
+//       });
+//       summary = text.replace(new RegExp("<think>.*</think>"), "");
+//     } catch (error: any) {
+//       console.log(
+//         `[${new Date().toUTCString()}]: Error while parsing ${name}()`,
+//       );
+//       failed = true;
+//     }
+//   } while (failed);
 
-  // Generate embeddings using Cohere
-  let embedding: number[] = [];
-  let embeddingTries = 0;
-  let embeddingWaitTime = 1000;
+//   // Generate embeddings using Cohere
+//   let embedding: number[] = [];
+//   let embeddingTries = 0;
+//   let embeddingWaitTime = 1000;
 
-  do {
-    try {
-      const embeddingResponse = await cohere.v2.embed({
-        model: "embed-english-v3.0",
-        texts: [summary],
-        inputType: "search_document",
-        embeddingTypes: ["float"],
-      });
-      embedding = embeddingResponse.embeddings.float![0];
-      break;
-    } catch (error: any) {
-      console.log(
-        `[${new Date().toUTCString()}]: Error while generating embedding for ${name}():`,
-        error.message,
-      );
-      embeddingTries += 1;
-      if (embeddingTries < 3) {
-        embeddingWaitTime *= 2.5;
-        setTimeout(() => {}, embeddingWaitTime);
-        console.log(
-          `[${new Date().toUTCString()}]: Retrying embedding generation for ${name}() after waiting ${embeddingWaitTime / 1000}s.`,
-        );
-      }
-    }
-  } while (embeddingTries < 3);
+//   do {
+//     try {
+//       const embeddingResponse = await cohere.v2.embed({
+//         model: "embed-english-v3.0",
+//         texts: [summary],
+//         inputType: "search_document",
+//         embeddingTypes: ["float"],
+//       });
+//       embedding = embeddingResponse.embeddings.float![0];
+//       break;
+//     } catch (error: any) {
+//       console.log(
+//         `[${new Date().toUTCString()}]: Error while generating embedding for ${name}():`,
+//         error.message,
+//       );
+//       embeddingTries += 1;
+//       if (embeddingTries < 3) {
+//         embeddingWaitTime *= 2.5;
+//         setTimeout(() => {}, embeddingWaitTime);
+//         console.log(
+//           `[${new Date().toUTCString()}]: Retrying embedding generation for ${name}() after waiting ${embeddingWaitTime / 1000}s.`,
+//         );
+//       }
+//     }
+//   } while (embeddingTries < 3);
 
-  if (embeddingTries >= 3) {
-    console.log(
-      `[${new Date().toUTCString()}]: Unable to generate embedding for ${name}() after 3 tries. Skipping.`,
-    );
-    return;
-  }
-  db.relational.client!.query(
-    `
-      UPDATE functions
-      SET summary = $2, embedding = $3
-      WHERE id = $1;
-    `,
-    [functionNodeId, summary, JSON.stringify(embedding)],
-  );
+//   if (embeddingTries >= 3) {
+//     console.log(
+//       `[${new Date().toUTCString()}]: Unable to generate embedding for ${name}() after 3 tries. Skipping.`,
+//     );
+//     return;
+//   }
+//   db.relational.client!.query(
+//     `
+//       UPDATE functions
+//       SET summary = $2, embedding = $3
+//       WHERE id = $1;
+//     `,
+//     [functionNodeId, summary, JSON.stringify(embedding)],
+//   );
 
-  console.log(`[${new Date().toUTCString()}]: Parsed function: ${name}`);
-}
+//   console.log(`[${new Date().toUTCString()}]: Parsed function: ${name}`);
+// }
 
 async function addCallsRelation(
   caller: string,

@@ -98,7 +98,7 @@ function createMcpServer(): McpServer {
         .describe("description of the task performed by the function"),
       topK: z.number().describe("Number of results to return (default: 10)"),
     },
-    async ({ function_description, topK = 10 }) => {
+    async ({ function_description, topK = 10 }: { function_description: string; topK?: number }) => {
       try {
         const functions = await getSimilarFunctions(function_description);
         return {
@@ -132,7 +132,7 @@ function createMcpServer(): McpServer {
         .string()
         .describe("The element ID of the function to find callers for"),
     },
-    async ({ functionId }) => {
+    async ({ functionId }: { functionId: string }) => {
       try {
         const result = await executeQuery(
           `
@@ -178,7 +178,7 @@ function createMcpServer(): McpServer {
         .string()
         .describe("The element ID of the function to find callees for"),
     },
-    async ({ functionId }) => {
+    async ({ functionId }: { functionId: string }) => {
       try {
         const result = await executeQuery(
           `
@@ -224,7 +224,7 @@ function createMcpServer(): McpServer {
         .string()
         .describe("The element ID of the function to get details for"),
     },
-    async ({ functionId }) => {
+    async ({ functionId }: { functionId: string }) => {
       try {
         const result = await db.relational.client!.query(
           `SELECT id, name, code, summary FROM functions WHERE id = $1 LIMIT 1`,
@@ -267,171 +267,25 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-// Handle MCP POST requests
-fastify.post("/mcp", { 
-  bodyLimit: 1048576, // 1MB
-}, async (request, reply) => {
-  try {
-    // Create a new transport for each request
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
-    });
-
-    // Create server instance
-    const server = createMcpServer();
-
-    // Connect server to transport
-    await server.connect(transport);
-
-    // Convert Fastify request/reply to Express-like format
-    const expressLikeReq = {
-      ...request,
-      headers: request.headers,
-      body: request.body,
-      method: request.method,
-      url: request.url,
-    };
-
-    const expressLikeRes = {
-      status: (code: number) => {
-        reply.status(code);
-        return expressLikeRes;
-      },
-      json: (data: any) => {
-        reply.send(data);
-        return expressLikeRes;
-      },
-      send: (data: any) => {
-        reply.send(data);
-        return expressLikeRes;
-      },
-      setHeader: (name: string, value: string) => {
-        reply.header(name, value);
-        return expressLikeRes;
-      },
-      writeHead: (statusCode: number, headers?: any) => {
-        reply.status(statusCode);
-        if (headers) {
-          Object.entries(headers).forEach(([key, value]) => {
-            reply.header(key, value as string);
-          });
-        }
-        return expressLikeRes;
-      },
-      write: (chunk: any) => {
-        reply.raw.write(chunk);
-        return expressLikeRes;
-      },
-      end: (data?: any) => {
-        if (data) {
-          reply.send(data);
-        } else {
-          reply.raw.end();
-        }
-        return expressLikeRes;
-      },
-      on: (event: string, listener: (...args: any[]) => void) => {
-        reply.raw.on(event, listener);
-        return expressLikeRes;
-      },
-      headersSent: reply.sent,
-    };
-
-    // Handle the request through the transport
-    await transport.handleRequest(
-      expressLikeReq as any,
-      expressLikeRes as any,
-    );
-
-    // Clean up
-    server.close();
-  } catch (error) {
-    console.error("Error handling MCP request:", error);
-    if (!reply.sent) {
-      reply.status(500).send({
-        jsonrpc: "2.0",
-        error: {
-          code: -32603,
-          message: "Internal server error",
-        },
-        id: null,
-      });
-    }
-  }
+// Global server instance
+const server = createMcpServer();
+const transport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
 });
 
-// Handle MCP GET/DELETE requests (for SSE and cleanup)
+// Connect server to transport once at startup
+server.connect(transport);
+
+// Handle MCP requests (POST, GET, DELETE)
 fastify.route({
-  method: ['GET', 'DELETE'],
+  method: ['POST', 'GET', 'DELETE'],
   url: '/mcp',
+  config: {
+    rawBody: true,
+  },
   handler: async (request, reply) => {
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
-      });
-
-      const server = createMcpServer();
-      await server.connect(transport);
-
-      const expressLikeReq = {
-        ...request,
-        headers: request.headers,
-        body: request.body,
-        method: request.method,
-        url: request.url,
-      };
-
-      const expressLikeRes = {
-        status: (code: number) => {
-          reply.status(code);
-          return expressLikeRes;
-        },
-        json: (data: any) => {
-          reply.send(data);
-          return expressLikeRes;
-        },
-        send: (data: any) => {
-          reply.send(data);
-          return expressLikeRes;
-        },
-        setHeader: (name: string, value: string) => {
-          reply.header(name, value);
-          return expressLikeRes;
-        },
-        writeHead: (statusCode: number, headers?: any) => {
-          reply.status(statusCode);
-          if (headers) {
-            Object.entries(headers).forEach(([key, value]) => {
-              reply.header(key, value as string);
-            });
-          }
-          return expressLikeRes;
-        },
-        write: (chunk: any) => {
-          reply.raw.write(chunk);
-          return expressLikeRes;
-        },
-        end: (data?: any) => {
-          if (data) {
-            reply.send(data);
-          } else {
-            reply.raw.end();
-          }
-          return expressLikeRes;
-        },
-        on: (event: string, listener: (...args: any[]) => void) => {
-          reply.raw.on(event, listener);
-          return expressLikeRes;
-        },
-        headersSent: reply.sent,
-      };
-
-      await transport.handleRequest(
-        expressLikeReq as any,
-        expressLikeRes as any,
-      );
-
-      server.close();
+      await transport.handleRequest(request.raw, reply.raw, request.body);
     } catch (error) {
       console.error("Error handling MCP request:", error);
       if (!reply.sent) {

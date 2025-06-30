@@ -14,7 +14,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { globSync } from "glob";
 import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
-import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
+import { parseFunctionDeclaration } from "./parse";
 import { HOME_PATH, REPO_PATH, NODE_ENV } from "./env";
 import { hash } from "node:crypto";
 
@@ -31,6 +31,9 @@ interface PrePassResultDTO {
 
 let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
+
+// Configurable delay for API rate limiting (in milliseconds)
+const API_RATE_LIMIT_DELAY = 1000; // 1 second delay between function parsing calls
 
 interface ImportData {
   clause: string;
@@ -105,7 +108,13 @@ function traverseNodes(filePath: string, node: Node): void | ImportData[] {
       return;
     }
 
-    parseFunctionDeclaration(functionNode);
+    // Add function to parse queue instead of parsing immediately
+    const functionNodeId = `${cleanPath(filePath)}:${functionNode.name.escapedText.toString()}`;
+    functionParseQueue.push({
+      node: functionNode,
+      functionNodeId,
+      reParse: false,
+    });
   }
   return result;
 }
@@ -180,6 +189,40 @@ export function cleanPath(path: string) {
   return path.replace(repoPath, "");
 }
 
+// Event loop to process function parse queue with rate limiting
+export async function processFunctionParseQueue() {
+  console.log(
+    `Starting function parse queue processing with ${functionParseQueue.length} items`,
+  );
+
+  while (functionParseQueue.length > 0) {
+    const item = functionParseQueue[0]; // Peek at first item without removing
+    if (!item) break;
+
+    try {
+      console.log(
+        `Processing function ${item.functionNodeId} (${functionParseQueue.length} remaining)`,
+      );
+      await parseFunctionDeclaration(item.node);
+
+      // Only remove from queue if parsing was successful
+      functionParseQueue.shift();
+
+      // Apply delay for API rate limiting
+      if (functionParseQueue.length > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, API_RATE_LIMIT_DELAY),
+        );
+      }
+    } catch (error) {
+      console.error(`Error processing function ${item.functionNodeId}:`, error);
+      // Item remains in queue for potential retry
+    }
+  }
+
+  console.log("Completed processing function parse queue");
+}
+
 export async function useRepo(): Promise<PrePassResultDTO> {
   // Use the repository path from environment variable or command line arg
   const repoPath = getRepoPath();
@@ -225,6 +268,15 @@ async function main() {
       }
     }
     console.log(`Completed parsing ${processedFiles} files`);
+
+    // Process function parse queue with rate limiting
+    if (functionParseQueue.length > 0) {
+      console.log(
+        `Starting function analysis for ${functionParseQueue.length} functions...`,
+      );
+      await processFunctionParseQueue();
+    }
+
     process.exit(0);
   } catch (error) {
     console.error("Fatal error in main function:", error);

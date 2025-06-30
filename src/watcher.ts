@@ -2,7 +2,6 @@ import { watch, FSWatcher } from "node:fs";
 import { resolve, extname } from "node:path";
 import { existsSync } from "node:fs";
 import { parseFile, useRepo } from "./index";
-import { processFunctionWithAI } from "./parse";
 import { db, setupDB } from "./db";
 
 interface WatcherOptions {

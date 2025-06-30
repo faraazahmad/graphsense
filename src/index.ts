@@ -16,6 +16,7 @@ import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
 import { HOME_PATH, REPO_PATH, NODE_ENV } from "./env";
+import { hash } from "node:crypto";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -104,7 +105,7 @@ function traverseNodes(filePath: string, node: Node): void | ImportData[] {
       return;
     }
 
-    parseFunctionDeclaration(functionNode, false);
+    parseFunctionDeclaration(functionNode);
   }
   return result;
 }

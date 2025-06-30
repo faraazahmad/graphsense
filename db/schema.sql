@@ -6,5 +6,6 @@ CREATE TABLE IF NOT EXISTS functions (
     end_line INTEGER,
     parsed timestamp,
     summary TEXT,
-    embedding VECTOR(1024)
+    embedding VECTOR(1024),
+    checksum VARCHAR(64)
 );

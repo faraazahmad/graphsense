@@ -11,7 +11,7 @@ COPY tsconfig.json ./
 
 # Install dependencies
 RUN npm install -g typescript
-RUN npm install --loglevel verbose
+RUN npm install
 
 # Copy source code and entrypoint
 COPY src/ ./src/

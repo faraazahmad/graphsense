@@ -8,16 +8,26 @@ import {
 import { generateText, GenerateTextResult } from "ai";
 import { db, executeQuery } from "./db";
 import { cleanPath, getRepoPath } from ".";
-import { claude, getRepoQualifier, CO_API_KEY } from "./env";
+import { claude, getRepoQualifier, CO_API_KEY, gemini } from "./env";
 import { CohereClient } from "cohere-ai";
 import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers";
+import { createHash } from "node:crypto";
 
-export async function parseFunctionDeclaration(
-  node: FunctionDeclaration,
-  reParse = true,
-) {
+export async function parseFunctionDeclaration(node: FunctionDeclaration) {
+  if (!node) {
+    return;
+  }
+
+  const functionName = node.name?.escapedText?.toString() || "";
+  if (!functionName) {
+    return;
+  }
+
+  const fileName = cleanPath(node.getSourceFile().fileName);
+  const functionText = node.getFullText();
   const callSet = new Set<string>();
+
   // Recursively visit each child to capture function calls from this node
   const extractFunctionCalls = (
     rootFunction: FunctionDeclaration,
@@ -32,64 +42,158 @@ export async function parseFunctionDeclaration(
       extractFunctionCalls(rootFunction, child),
     );
   };
-
-  const result = await executeQuery(
-    `
-      MERGE (function:Function {name: $name, path: $path}) return elementId(function) as id
-    `,
-    {
-      path: cleanPath(node.getSourceFile().fileName),
-      name: node.name?.escapedText,
-    },
-  );
   forEachChild(node, (child: Node) => extractFunctionCalls(node, child));
+  if (!callSet.size) {
+    return;
+  }
 
   try {
-    const id = result.records.map((rec) => rec.get("id"));
-    const sourceFile = node.getSourceFile();
+    const fnWithChecksum = await db.relational.client!.query(
+      `
+        SELECT checksum, name, path FROM functions
+        WHERE name = $1 AND path = $2
+        LIMIT 1;
+      `,
+      [functionName, fileName],
+    );
 
-    console.log(`Updating ${node.name?.escapedText}() in DB.`);
-    const name = node.name?.escapedText;
-    const path = cleanPath(sourceFile.fileName);
-    const start_line =
+    const functionData = fnWithChecksum.rows[0];
+    const checksum = createHash("sha1").update(functionText).digest("hex");
+    if (functionData?.checksum === checksum) {
+      return;
+    }
+
+    // Try multiple times with exponential backoff since these APIs can rate limit or experience downtime.
+    let waitTime = 1000;
+    let summary: string = "";
+    let embedding: number[] = [];
+    let summaryTries = 0;
+    let embeddingTries = 0;
+
+    // Generate function summary using LLM
+    do {
+      try {
+        const { text } = await generateText({
+          model: claude,
+          prompt: `Given the following function body, generate a summary for it: \`\`\`${functionText}\`\`\``,
+        });
+        summary = text.replace(new RegExp("<think>.*</think>"), "");
+        break;
+      } catch (error: any) {
+        console.log(
+          `[${new Date().toUTCString()}]: Error while generating summary for ${functionName}():`,
+          error.message,
+        );
+        summaryTries += 1;
+        if (summaryTries < 3) {
+          waitTime *= 2.5;
+          setTimeout(() => {}, waitTime);
+          console.log(
+            `[${new Date().toUTCString()}]: Retrying summary generation for ${functionName}() after waiting ${waitTime / 1000}s.`,
+          );
+        }
+      }
+    } while (summaryTries < 3);
+
+    if (summaryTries >= 3) {
+      console.log(
+        `[${new Date().toUTCString()}]: Unable to generate summary for ${functionName}() after 3 tries.`,
+      );
+      return;
+    }
+
+    // Generate summary embeddings using Cohere
+    waitTime = 1000;
+    do {
+      try {
+        const embeddingResponse = await cohere.v2.embed({
+          model: "embed-english-v3.0",
+          texts: [summary],
+          inputType: "search_document",
+          embeddingTypes: ["float"],
+        });
+        embedding = embeddingResponse.embeddings.float![0];
+        break;
+      } catch (error: any) {
+        console.log(
+          `[${new Date().toUTCString()}]: Error while generating embedding for ${functionName}():`,
+          error.message,
+        );
+        embeddingTries += 1;
+        if (embeddingTries < 3) {
+          waitTime *= 2.5;
+          setTimeout(() => {}, waitTime);
+          console.log(
+            `[${new Date().toUTCString()}]: Retrying embedding generation for ${functionName}() after waiting ${waitTime / 1000}s.`,
+          );
+        }
+      }
+    } while (embeddingTries < 3);
+
+    if (embeddingTries >= 3) {
+      console.log(
+        `[${new Date().toUTCString()}]: Unable to generate embedding for ${functionName}() after 3 tries.`,
+      );
+      return;
+    }
+
+    console.log(`Updating ${functionName}() in DB.`);
+
+    // Upsert function metadata into graph DB
+    const result = await executeQuery(
+      `
+        MERGE (function:Function {name: $name, path: $path})
+        return elementId(function) as id
+      `,
+      {
+        path: fileName,
+        name: functionName,
+      },
+    );
+    addCallsRelation(functionText, fileName, callSet);
+    const id: string = result.records.map((rec) => rec.get("id"))[0];
+
+    const sourceFile = node.getSourceFile();
+    const startLine =
       sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-    const end_line =
+    const endLine =
       sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
 
+    // Upsert function metadata into relational DB
     await db.relational.client!.query(
       `
-        INSERT INTO functions (id, name, path, start_line, end_line, parsed)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO functions (id, name, path, start_line, end_line, parsed, checksum, summary, embedding)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         path = EXCLUDED.path,
         start_line = EXCLUDED.start_line,
         end_line = EXCLUDED.end_line,
-        parsed = EXCLUDED.parsed
+        parsed = EXCLUDED.parsed,
+        checksum = EXCLUDED.checksum,
+        summary = EXCLUDED.summary,
+        embedding = EXCLUDED.embedding
       `,
-      [id[0], name, path, start_line, end_line, new Date()],
+      [
+        id,
+        functionName,
+        fileName,
+        startLine,
+        endLine,
+        new Date(),
+        checksum,
+        summary,
+        JSON.stringify(embedding),
+      ],
     );
-
-    await processFunctionWithAI({
-      id: id[0],
-      name,
-      path,
-      start_line,
-      end_line,
-    });
+    console.log(`[${new Date().toUTCString()}]: Parsed ${functionName}()`);
   } catch (err: any) {
-    console.error(`Error parsing ${node.name?.escapedText}(): ${err.message}`);
+    console.log(
+      `[${new Date().toUTCString()}]: Error parsing ${functionName}()`,
+    );
+    console.error(err);
     return;
   }
-
-  if (!Array.from(callSet).length) {
-    return;
-  }
-  addCallsRelation(
-    node.name!.getText(),
-    node.getSourceFile().fileName,
-    callSet,
-  );
 }
 
 const cohere = new CohereClient({ token: CO_API_KEY });
@@ -127,7 +231,7 @@ export async function processFunctionWithAI(functionData: any) {
       }
 
       const { text } = await generateText({
-        model: claude,
+        model: gemini,
         prompt: `Given the following function body, generate a 3 line summary for it: \`\`\`${functionText}\`\`\``,
       });
       summary = text.replace(new RegExp("<think>.*</think>"), "");
@@ -140,14 +244,42 @@ export async function processFunctionWithAI(functionData: any) {
   } while (failed);
 
   // Generate embeddings using Cohere
-  const embeddingResponse = await cohere.v2.embed({
-    model: "embed-english-v3.0",
-    texts: [summary],
-    inputType: "search_document",
-    embeddingTypes: ["float"]
-  });
-  
-  const embedding = embeddingResponse.embeddings.float![0];
+  let embedding: number[] = [];
+  let embeddingTries = 0;
+  let embeddingWaitTime = 1000;
+
+  do {
+    try {
+      const embeddingResponse = await cohere.v2.embed({
+        model: "embed-english-v3.0",
+        texts: [summary],
+        inputType: "search_document",
+        embeddingTypes: ["float"],
+      });
+      embedding = embeddingResponse.embeddings.float![0];
+      break;
+    } catch (error: any) {
+      console.log(
+        `[${new Date().toUTCString()}]: Error while generating embedding for ${name}():`,
+        error.message,
+      );
+      embeddingTries += 1;
+      if (embeddingTries < 3) {
+        embeddingWaitTime *= 2.5;
+        setTimeout(() => {}, embeddingWaitTime);
+        console.log(
+          `[${new Date().toUTCString()}]: Retrying embedding generation for ${name}() after waiting ${embeddingWaitTime / 1000}s.`,
+        );
+      }
+    }
+  } while (embeddingTries < 3);
+
+  if (embeddingTries >= 3) {
+    console.log(
+      `[${new Date().toUTCString()}]: Unable to generate embedding for ${name}() after 3 tries. Skipping.`,
+    );
+    return;
+  }
   db.relational.client!.query(
     `
       UPDATE functions

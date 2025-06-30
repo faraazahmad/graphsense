@@ -68,11 +68,11 @@ export async function setupDB(
 
     // Test the connection
     await db.relational.client.query("SELECT 1");
-    console.log("✅ PostgreSQL connection established successfully");
+    console.log("PostgreSQL connection established successfully");
 
     // Create pgvector extension
     await db.relational.client.query("CREATE EXTENSION IF NOT EXISTS vector");
-    console.log("✅ pgvector extension ensured");
+    console.log("pgvector extension ensured");
 
     // Apply schema
     const pgSchema = readFileSync(
@@ -80,12 +80,12 @@ export async function setupDB(
     ).toString();
 
     const result = await db.relational.client.query(pgSchema);
-    console.log("✅ Database schema applied successfully");
+    console.log("Database schema applied successfully");
 
     return Promise.resolve(result.rows);
   } catch (error) {
-    console.error("❌ PostgreSQL connection failed:", error);
-    throw error;
+    console.error("PostgreSQL connection failed:", error);
+    return Promise.reject(error);
   }
 }
 

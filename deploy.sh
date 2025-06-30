@@ -36,8 +36,6 @@ COMMANDS:
 
 OPTIONS:
     --port <port>                      Base port for the instance (default: auto-assigned)
-    --co-api-key <key>                 Cohere API key for the application
-    --anthropic-api-key <key>          Anthropic API key for the application
 
 EXAMPLES:
     $0 deploy /path/to/local/repository my-analysis
@@ -96,13 +94,19 @@ instance_exists() {
     fi
 }
 
+# Read API keys from ~/.graphsense/.env file
+read_api_keys() {
+    local env_file="$HOME/.graphsense/.env"
+    if [[ -f "$env_file" ]]; then
+        source "$env_file"
+    fi
+}
+
 # Deploy new instance
 deploy_instance() {
     local repo_path=$1
     local instance_name=$2
     local app_port=$3
-    local co_api_key=$4
-    local anthropic_api_key=$5
 
     # Validate repo path
     if [[ ! -d "$repo_path" ]]; then
@@ -134,6 +138,9 @@ deploy_instance() {
         app_port=$(get_next_port $DEFAULT_APP_PORT)
     fi
 
+    # Read API keys from config file
+    read_api_keys
+
     # Create temporary environment file
     local temp_env=$(mktemp)
     cat > "$temp_env" << EOF
@@ -159,13 +166,13 @@ RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW=900000
 EOF
 
-    # Add API keys if provided
-    if [[ -n "$co_api_key" ]]; then
-        echo "CO_API_KEY=$co_api_key" >> "$temp_env"
+    # Add API keys if available from config file
+    if [[ -n "$CO_API_KEY" ]]; then
+        echo "CO_API_KEY=$CO_API_KEY" >> "$temp_env"
     fi
 
-    if [[ -n "$anthropic_api_key" ]]; then
-        echo "ANTHROPIC_API_KEY=$anthropic_api_key" >> "$temp_env"
+    if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+        echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> "$temp_env"
     fi
 
     # Create instance-specific docker-compose override
@@ -437,8 +444,6 @@ COMMAND=""
 REPO_PATH=""
 INSTANCE_NAME=""
 APP_PORT=""
-CO_API_KEY=""
-ANTHROPIC_API_KEY=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -448,14 +453,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --port)
             APP_PORT=$2
-            shift 2
-            ;;
-        --co-api-key)
-            CO_API_KEY=$2
-            shift 2
-            ;;
-        --anthropic-api-key)
-            ANTHROPIC_API_KEY=$2
             shift 2
             ;;
         -h|--help)
@@ -496,7 +493,7 @@ case $COMMAND in
             log_error "Repository path is required for deploy command."
             exit 1
         fi
-        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$APP_PORT" "$CO_API_KEY" "$ANTHROPIC_API_KEY"
+        deploy_instance "$REPO_PATH" "$INSTANCE_NAME" "$APP_PORT"
         ;;
     stop)
         if [[ -z "$INSTANCE_NAME" ]]; then

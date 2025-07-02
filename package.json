@@ -9,6 +9,8 @@
     "start:full": "chmod +x entrypoint.js && node entrypoint.js",
     "start:shell": "chmod +x start.sh && ./start.sh",
     "entrypoint": "node entrypoint.js",
+    "test": "mocha test/*.test.js",
+    "test:entrypoint": "mocha test/entrypoint.test.js",
     "docker:setup": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh setup",
     "docker:start": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh start",
     "docker:stop": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh stop",
@@ -30,20 +32,23 @@
     "@pinecone-database/pinecone": "^5.1.2",
     "@types/express": "^5.0.3",
     "ai": "^4.3.4",
-    "cohere-ai": "^7.17.1",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "fastify": "^5.3.0",
     "fastify-sse-v2": "^4.2.1",
+    "get-port": "^7.1.0",
     "glob": "^11.0.3",
     "neo4j-driver": "^5.28.1",
     "ollama-ai-provider": "^1.2.0",
     "pg": "^8.14.1",
+    "sqlite3": "^5.1.7",
     "typescript": "^5.8.3",
     "zod": "^3.25.32"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@types/pg": "^8.11.12"
+    "@types/pg": "^8.11.12",
+    "chai": "^5.2.0",
+    "mocha": "^11.7.1"
   }
 }

@@ -5,6 +5,9 @@ import { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, POSTGRES_URL } from "./env";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+console.log(NEO4J_URI)
+console.log(POSTGRES_URL)
+
 export async function executeQuery(query: string, variables: Object) {
   const session = db.graph.client!.session();
   const result = await session.run(query, variables);

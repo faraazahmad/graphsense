@@ -268,22 +268,19 @@ async function main() {
     checkRepositoryPath();
 
     // Build project
-    await buildProject();
+    // await buildProject();
 
     // Run initial indexing
-    await runInitialIndexing();
+    runInitialIndexing();
 
     // Start all services
     log("Starting all services...");
 
     // Start file watcher
-    await startWatcher();
-
-    // Wait a bit for watcher to be ready
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    startWatcher();
 
     // Start MCP HTTP server
-    await startMcpServer();
+    startMcpServer();
 
     log("All services started successfully!");
     log("GraphSense is ready to use:");

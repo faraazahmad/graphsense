@@ -102,7 +102,7 @@ The system uses a hybrid approach combining:
 3. **Pinecone Vector Databases**: Dual-index setup for enhanced search
    - Dense embeddings index
    - Sparse embeddings index
-   - Cohere reranking for result optimization
+   - Pinecone similarity-based ranking for result optimization
 
 ## Prerequisites
 
@@ -113,7 +113,7 @@ The system uses a hybrid approach combining:
   - Google Generative AI (Gemini) - [Get API Key](https://aistudio.google.com/app/apikey)
   - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
   - Pinecone - [Get API Key](https://app.pinecone.io/)
-  - Cohere - [Get API Key](https://dashboard.cohere.ai/api-keys)
+  
 
 ## Installation & Setup
 
@@ -166,7 +166,7 @@ cd code-graph-rag
 Required variables (must be set):
 - `GOOGLE_GENERATIVE_AI_API_KEY` - Gemini API key
 - `ANTHROPIC_API_KEY` - Claude API key
-- `CO_API_KEY` - Cohere API key
+
 - `PINECONE_API_KEY` - Pinecone API key
 
 - `HOME` - Home directory path
@@ -389,7 +389,7 @@ Available MCP tools:
 The system uses multiple AI providers:
 - **Gemini 2.0**: Primary model for function summarization and query planning
 - **Claude 3.5 Sonnet**: Backup model and natural language processing
-- **Cohere**: Reranking for search results
+- **Pinecone**: Vector embeddings and similarity ranking
 
 ### Vector Search
 
@@ -397,7 +397,7 @@ Hybrid search approach:
 1. Dense vector search (semantic similarity)
 2. Sparse vector search (keyword matching)
 3. Result merging and deduplication
-4. Cohere reranking for optimal results
+4. Pinecone similarity ranking for optimal results
 
 ## Development
 

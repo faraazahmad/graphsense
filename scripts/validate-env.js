@@ -103,18 +103,7 @@ const requiredVars = [
     },
   },
 
-  {
-    name: "CO_API_KEY",
-    description: "Cohere API key",
-    example: "your-cohere-api-key",
-    validator: (value) => {
-      if (!value) return "Value is required";
-      if (value.length < 20) {
-        return "Seems too short for a valid API key";
-      }
-      return null;
-    },
-  }
+
 ];
 
 // Optional environment variables with defaults

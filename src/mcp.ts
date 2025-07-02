@@ -1,32 +1,35 @@
-import Fastify from "fastify";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 import { executeQuery, db } from "./db";
-import { getRepoQualifier, CO_API_KEY } from "./env";
-import { getRepoPath } from "./index";
-import { CohereClient } from "cohere-ai";
+import { PINECONE_API_KEY } from "./env";
+import { Pinecone } from "@pinecone-database/pinecone";
 
-const cohere = new CohereClient({ token: CO_API_KEY });
-
-// Create Fastify instance
-const fastify = Fastify({
-  logger: true,
+const pinecone = new Pinecone({
+  apiKey: PINECONE_API_KEY,
 });
+
+const index = pinecone.Index("function-embeddings");
 
 export async function getSimilarFunctions(description: string) {
   console.log(description);
 
-  // Generate embedding for the search query using Cohere
-  const embeddingResponse = await cohere.v2.embed({
-    model: "embed-english-v3.0",
-    texts: [description],
-    inputType: "search_query",
-    embeddingTypes: ["float"],
-  });
+  // Generate embedding for the search query using Pinecone
+  const embeddingResponse = await pinecone.inference.embed(
+    "multilingual-e5-large",
+    [description],
+    { inputType: "query" }
+  );
 
-  const queryEmbedding = embeddingResponse.embeddings.float![0];
+  // Handle both dense and sparse embeddings
+  let queryEmbedding: number[] = [];
+  if (embeddingResponse.data && embeddingResponse.data.length > 0) {
+    const embeddingData = embeddingResponse.data[0];
+    if ('values' in embeddingData) {
+      queryEmbedding = embeddingData.values;
+    }
+  }
 
   const topK = 10;
 
@@ -61,21 +64,12 @@ export async function getSimilarFunctions(description: string) {
     return [];
   }
 
-  // Rerank using Cohere
-  const cohereResponse = await cohere.v2.rerank({
-    model: "rerank-v3.5",
-    query: description,
-    topN: Math.min(topK, results.length),
-    documents: results.map((res) => res.text),
-  });
-
-  // Map reranked results back to function data
-  const reRanked = cohereResponse.results.map((row) => results[row.index]);
-
-  const rankedFunctions = reRanked.map((func) => ({
+  // Use Pinecone similarity scores for ranking (already sorted by similarity)
+  const rankedFunctions = results.slice(0, Math.min(topK, results.length)).map((func) => ({
     id: func.id,
     path: func.path,
     name: func.name,
+    similarity_score: func.similarity_score,
   }));
 
   return Promise.resolve(rankedFunctions);
@@ -267,74 +261,12 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-// Global server instance
-const server = createMcpServer();
-const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: () => `session-${Date.now()}-${Math.random()}`,
-});
-
-// Connect server to transport once at startup
-server.connect(transport);
-
-// Handle MCP requests (POST, GET, DELETE)
-fastify.route({
-  method: ['POST', 'GET', 'DELETE'],
-  url: '/mcp',
-  config: {
-    rawBody: true,
-  },
-  handler: async (request, reply) => {
-    try {
-      await transport.handleRequest(request.raw, reply.raw, request.body);
-    } catch (error) {
-      console.error("Error handling MCP request:", error);
-      if (!reply.sent) {
-        reply.status(500).send({
-          jsonrpc: "2.0",
-          error: {
-            code: -32603,
-            message: "Internal server error",
-          },
-          id: null,
-        });
-      }
-    }
-  }
-});
-
-// Health check endpoint
-fastify.get("/health", async (request, reply) => {
-  return {
-    status: "ok",
-    service: "GraphSense MCP Server",
-    version: "1.0.0",
-  };
-});
-
 // Start the server
-const PORT = Number(process.env.PORT) || 8080;
-const HOST = process.env.HOST || "0.0.0.0";
-
 if (require.main === module) {
-  const start = async () => {
-    try {
-      // Register CORS
-      await fastify.register(import("@fastify/cors"), {
-        origin: true,
-        credentials: true,
-      });
-
-      await fastify.listen({ port: PORT, host: HOST });
-      console.log(`GraphSense MCP Server listening on http://${HOST}:${PORT}`);
-      console.log(`Health check available at: http://${HOST}:${PORT}/health`);
-      console.log(`MCP endpoint available at: http://${HOST}:${PORT}/mcp`);
-    } catch (err) {
-      fastify.log.error(err);
-      process.exit(1);
-    }
-  };
-
-  start();
+  const server = createMcpServer();
+  const transport = new StdioServerTransport();
+  server.connect(transport);
+  console.log("GraphSense MCP Server running on stdio");
 }
 
-export { fastify, createMcpServer };
+export { createMcpServer };

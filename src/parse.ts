@@ -8,8 +8,8 @@ import {
 import { generateText, GenerateTextResult } from "ai";
 import { db, executeQuery } from "./db";
 import { cleanPath, getRepoPath } from ".";
-import { claude, getRepoQualifier, CO_API_KEY, gemini } from "./env";
-import { CohereClient } from "cohere-ai";
+import { claude, getRepoQualifier, PINECONE_API_KEY, gemini } from "./env";
+import { Pinecone } from "@pinecone-database/pinecone";
 import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers";
 import { createHash } from "node:crypto";
@@ -63,6 +63,7 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
       return;
     }
 
+
     // Try multiple times with exponential backoff since these APIs can rate limit or experience downtime.
     let waitTime = 1000;
     let summary: string = "";
@@ -74,7 +75,7 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
     do {
       try {
         const { text } = await generateText({
-          model: gemini,
+          model: claude,
           prompt: `Given the following function body, generate a summary for it: \`\`\`${functionText}\`\`\``,
         });
         summary = text.replace(new RegExp("<think>.*</think>"), "");
@@ -102,17 +103,25 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
       return;
     }
 
-    // Generate summary embeddings using Cohere
+    // Generate summary embeddings using Pinecone
     waitTime = 1000;
     do {
       try {
-        const embeddingResponse = await cohere.v2.embed({
-          model: "embed-english-v3.0",
-          texts: [summary],
-          inputType: "search_document",
-          embeddingTypes: ["float"],
-        });
-        embedding = embeddingResponse.embeddings.float![0];
+        const embeddingResponse = await pinecone.inference.embed(
+          "multilingual-e5-large",
+          [summary],
+          { inputType: "passage" }
+        );
+        // Handle both dense and sparse embeddings
+        if (embeddingResponse.data && embeddingResponse.data.length > 0) {
+          const embeddingData = embeddingResponse.data[0];
+          if ('values' in embeddingData) {
+            embedding = embeddingData.values;
+          } else {
+            // Fallback for other embedding types
+            embedding = [];
+          }
+        }
         break;
       } catch (error: any) {
         console.log(
@@ -196,7 +205,11 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
   }
 }
 
-const cohere = new CohereClient({ token: CO_API_KEY });
+const pinecone = new Pinecone({
+  apiKey: PINECONE_API_KEY,
+});
+
+const index = pinecone.Index("function-embeddings");
 
 // export async function processFunctionWithAI(functionData: any) {
 //   const { id: functionNodeId, name, path, start_line, end_line } = functionData;
@@ -243,14 +256,14 @@ const cohere = new CohereClient({ token: CO_API_KEY });
 //     }
 //   } while (failed);
 
-//   // Generate embeddings using Cohere
+//   // Generate embeddings using Pinecone
 //   let embedding: number[] = [];
 //   let embeddingTries = 0;
 //   let embeddingWaitTime = 1000;
 
 //   do {
 //     try {
-//       const embeddingResponse = await cohere.v2.embed({
+//       const embeddingResponse = await pinecone.inference.embed(
 //         model: "embed-english-v3.0",
 //         texts: [summary],
 //         inputType: "search_document",

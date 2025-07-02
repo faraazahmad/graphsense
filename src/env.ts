@@ -79,7 +79,7 @@ export const HOME_PATH = process.env.HOME as string;
 export const REPO_PATH = "/home/repo";
 
 // API Keys
-export const CO_API_KEY = process.env.CO_API_KEY as string;
+export const PINECONE_API_KEY = process.env.PINECONE_API_KEY as string;
 
 // Application configuration
 export const NODE_ENV = process.env.NODE_ENV || "development";

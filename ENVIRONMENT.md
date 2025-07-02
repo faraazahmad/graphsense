@@ -40,7 +40,7 @@ These variables MUST be set for the application to function properly:
 |----------|-------------|--------------|
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI API key | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key | [Anthropic Console](https://console.anthropic.com/) |
-| `CO_API_KEY` | Cohere API key | [Cohere Dashboard](https://dashboard.cohere.ai/api-keys) |
+
 | `PINECONE_API_KEY` | Pinecone vector database API key | [Pinecone Console](https://app.pinecone.io/) |
 
 
@@ -226,11 +226,8 @@ npm run dev
    - Navigate to API Keys
    - Create a new key
 
-3. **Cohere:**
-   - Visit [Cohere Dashboard](https://dashboard.cohere.ai/api-keys)
-   - Generate a new API key
 
-4. **Pinecone:**
+3. **Pinecone:**
    - Visit [Pinecone Console](https://app.pinecone.io/)
    - Go to API Keys section
    - Create a new key

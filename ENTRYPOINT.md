@@ -108,7 +108,7 @@ LOCAL_REPO_PATH=/path/to/repo node entrypoint-dev.js
 ### AI/Vector Database (if using AI features)
 - `ANTHROPIC_API_KEY` - For Claude AI integration
 - `GOOGLE_GENERATIVE_AI_API_KEY` - For Gemini integration
-- `CO_API_KEY` - Cohere API key for reranking
+
 - `PINECONE_API_KEY` - Pinecone vector database
 
 ## Usage Examples

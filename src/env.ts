@@ -29,7 +29,7 @@ interface EnvironmentConfig {
 
 // Validate required environment variables
 function validateRequiredEnvVars(): void {
-  const requiredVars = ["HOME", "ANTHROPIC_API_KEY", "CO_API_KEY"];
+  const requiredVars = ["HOME", "ANTHROPIC_API_KEY", "PINECONE_API_KEY"];
 
   const missingVars = requiredVars.filter((varName) => !process.env[varName]);
 

@@ -4,10 +4,23 @@ import { spawn, exec, ChildProcess } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
+import * as os from "os";
 import { promisify } from "util";
 import getPort from "get-port";
+import * as dotenv from "dotenv";
 
 const execAsync = promisify(exec);
+
+// Load environment variables from ~/.graphsense/.env
+const graphsenseDir = path.join(os.homedir(), '.graphsense');
+const envFile = path.join(graphsenseDir, '.env');
+
+if (fs.existsSync(envFile)) {
+  dotenv.config({ path: envFile });
+  console.log(`Loaded environment variables from ${envFile}`);
+} else {
+  console.log(`Environment file not found at ${envFile}, using system environment variables`);
+}
 
 // Configuration
 interface ProcessInfo {
@@ -34,6 +47,7 @@ const BUILD_DIR = path.join(__dirname);
 
 // Process tracking
 const runningProcesses = new Map<string, ChildProcess>();
+const runningContainers = new Set<string>();
 let isShuttingDown = false;
 
 // Docker container info
@@ -159,6 +173,9 @@ async function setupPostgresContainer(repoHash: string): Promise<{ host: number;
       pgvector/pgvector:pg17`);
   }
   
+  // Track container for cleanup
+  runningContainers.add(containerName);
+  
   // Wait for postgres to be ready
   log("Waiting for postgres to be ready...");
   await new Promise(resolve => setTimeout(resolve, 5000));
@@ -207,6 +224,9 @@ async function setupNeo4jContainer(repoHash: string): Promise<{ host: number; co
       -e NEO4J_PLUGINS=apoc \\
       neo4j:latest`);
   }
+  
+  // Track container for cleanup
+  runningContainers.add(containerName);
   
   // Wait for neo4j to be ready
   log("Waiting for neo4j to be ready...");
@@ -350,6 +370,28 @@ function startMcpServer(pgPort: number, neo4jPort: number): void {
   });
 }
 
+// Stop all tracked containers
+async function stopContainers(): Promise<void> {
+  if (runningContainers.size === 0) {
+    return;
+  }
+
+  log("Stopping Docker containers...");
+  const containerStopPromises: Promise<void>[] = [];
+
+  for (const containerName of runningContainers) {
+    log(`Stopping container ${containerName}...`);
+    containerStopPromises.push(
+      execAsync(`docker stop ${containerName}`)
+        .then(() => log(`Container ${containerName} stopped`))
+        .catch((error) => logError(`Failed to stop container ${containerName}: ${error.message}`))
+    );
+  }
+
+  await Promise.all(containerStopPromises);
+  runningContainers.clear();
+}
+
 // Graceful shutdown
 function gracefulShutdown(signal: string): void {
   if (isShuttingDown) {
@@ -359,6 +401,7 @@ function gracefulShutdown(signal: string): void {
   isShuttingDown = true;
   log(`Received ${signal}, initiating graceful shutdown...`);
 
+  // First stop all child processes
   const shutdownPromises: Promise<void>[] = [];
 
   for (const [name, process] of runningProcesses) {
@@ -383,8 +426,11 @@ function gracefulShutdown(signal: string): void {
   }
 
   Promise.all(shutdownPromises)
-    .then(() => {
-      log("All processes stopped. Exiting...");
+    .then(async () => {
+      log("All processes stopped.");
+      // Now stop containers
+      await stopContainers();
+      log("All containers stopped. Exiting...");
       process.exit(0);
     })
     .catch((error) => {

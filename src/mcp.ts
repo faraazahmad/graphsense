@@ -10,8 +10,6 @@ const pinecone = new Pinecone({
   apiKey: PINECONE_API_KEY,
 });
 
-const index = pinecone.Index("function-embeddings");
-
 export async function getSimilarFunctions(description: string) {
   console.log(description);
 
@@ -19,14 +17,14 @@ export async function getSimilarFunctions(description: string) {
   const embeddingResponse = await pinecone.inference.embed(
     "multilingual-e5-large",
     [description],
-    { inputType: "query" }
+    { inputType: "query" },
   );
 
   // Handle both dense and sparse embeddings
   let queryEmbedding: number[] = [];
   if (embeddingResponse.data && embeddingResponse.data.length > 0) {
     const embeddingData = embeddingResponse.data[0];
-    if ('values' in embeddingData) {
+    if ("values" in embeddingData) {
       queryEmbedding = embeddingData.values;
     }
   }
@@ -65,12 +63,14 @@ export async function getSimilarFunctions(description: string) {
   }
 
   // Use Pinecone similarity scores for ranking (already sorted by similarity)
-  const rankedFunctions = results.slice(0, Math.min(topK, results.length)).map((func) => ({
-    id: func.id,
-    path: func.path,
-    name: func.name,
-    similarity_score: func.similarity_score,
-  }));
+  const rankedFunctions = results
+    .slice(0, Math.min(topK, results.length))
+    .map((func) => ({
+      id: func.id,
+      path: func.path,
+      name: func.name,
+      similarity_score: func.similarity_score,
+    }));
 
   return Promise.resolve(rankedFunctions);
 }
@@ -92,7 +92,13 @@ function createMcpServer(): McpServer {
         .describe("description of the task performed by the function"),
       topK: z.number().describe("Number of results to return (default: 10)"),
     },
-    async ({ function_description, topK = 10 }: { function_description: string; topK?: number }) => {
+    async ({
+      function_description,
+      topK = 10,
+    }: {
+      function_description: string;
+      topK?: number;
+    }) => {
       try {
         const functions = await getSimilarFunctions(function_description);
         return {

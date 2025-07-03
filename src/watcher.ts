@@ -22,7 +22,7 @@ const createDefaultOptions = (
   options: WatcherOptions,
 ): Required<WatcherOptions> => ({
   watchPath: resolve(options.watchPath),
-  extensions: options.extensions || [".js", ".ts", ".json"],
+  extensions: options.extensions || [".js", ".ts"],
   ignorePatterns: options.ignorePatterns || [
     /node_modules/,
     /\.git/,
@@ -167,7 +167,7 @@ const main = async (): Promise<void> => {
 
   const watcherState = startWatcher({
     watchPath,
-    extensions: [".js", ".ts", ".json"],
+    extensions: [".js", ".ts"],
     ignorePatterns: [
       /node_modules/,
       /\.git/,

@@ -12,23 +12,14 @@ import {
 import { dirname, resolve } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { globSync } from "glob";
-import { db, executeQuery, setupDB } from "./db";
+import { executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration } from "./parse";
-import { REPO_PATH } from "./env";
-import { hash } from "node:crypto";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
   functionNodeId: string;
   reParse: boolean;
 }
-
-interface PrePassResultDTO {
-  branch: string;
-  path: string;
-}
-
-let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
 
 // Configurable delay for API rate limiting (in milliseconds)
@@ -37,11 +28,6 @@ const API_RATE_LIMIT_DELAY = 1000; // 1 second delay between function parsing ca
 interface ImportData {
   clause: string;
   source: string;
-}
-
-interface PrePassResultDTO {
-  branch: string;
-  path: string;
 }
 
 function traverseNodes(filePath: string, node: Node): void | ImportData[] {
@@ -180,7 +166,7 @@ export function getRepoPath(): string {
     return cmdArgPath;
   }
 
-  return REPO_PATH;
+  return "";
 }
 
 export function cleanPath(path: string) {
@@ -228,12 +214,12 @@ async function main() {
     console.log("Starting code analysis...");
 
     const repoPath = getRepoPath();
-    const fileList = globSync(`${repoPath}/**/**/*.js`, {
+    const fileList = globSync(`${repoPath}/**/*.{js,ts,json}`, {
       absolute: true,
-      ignore: ["**/node_modules/**"],
+      ignore: [`${repoPath}/**/node_modules/**`],
     });
 
-    console.log(`Found ${fileList.length} JavaScript files to analyze`);
+    console.log(`Found ${fileList.length} files to analyze`);
 
     console.log("Starting file parsing...");
     let processedFiles = 0;

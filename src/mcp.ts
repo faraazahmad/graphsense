@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { executeQuery, db } from "./db";
+import { executeQuery, db, setupDB } from "./db";
 import { PINECONE_API_KEY } from "./env";
 import { Pinecone } from "@pinecone-database/pinecone";
 
@@ -269,10 +269,17 @@ function createMcpServer(): McpServer {
 
 // Start the server
 if (require.main === module) {
-  const server = createMcpServer();
-  const transport = new StdioServerTransport();
-  server.connect(transport);
-  console.log("GraphSense MCP Server running on stdio");
+  setupDB()
+    .then(() => {
+      const server = createMcpServer();
+      const transport = new StdioServerTransport();
+      server.connect(transport);
+      console.log("GraphSense MCP Server running on stdio");
+    })
+    .catch(err => {
+      console.error(err);
+      process.exit(1);
+    })
 }
 
 export { createMcpServer };

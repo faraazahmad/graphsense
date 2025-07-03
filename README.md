@@ -2,87 +2,176 @@
 
 A powerful code analysis and retrieval system that combines graph databases, vector search, and AI to understand and query codebases through natural language. GraphSense indexes JavaScript/TypeScript codebases into both a Neo4j graph database and a PostgreSQL vector database, enabling sophisticated queries about code structure, dependencies, and semantic relationships.
 
-## 🚀 Quick Start
-
-The fastest way to get started is with our interactive setup script:
-
-```bash
-./quick-start.sh
-```
-
-Or choose your preferred method:
-
-```bash
-# Local development
-./quick-start.sh dev
-
-# Docker development
-./quick-start.sh docker
-
-# Production deployment
-./quick-start.sh prod
-
-# Validate configuration
-./quick-start.sh validate
-```
-
-### One-Command Setup
-
-```bash
-# Development with npm
-npm run dev
-
-# Docker environment
-npm run docker:setup
-
-# Production
-npm run prod
-```
+## Quick Start
 
 ## Features
 
-- **Multi-Modal Code Analysis**: Combines graph-based structural analysis with semantic vector search
-- **Natural Language Queries**: Ask questions about your codebase in plain English
-- **Function Discovery**: Find functions based on semantic similarity and structural relationships
-- **Dependency Tracking**: Understand import relationships and function call hierarchies
-- **AI-Powered Summaries**: Automatically generates summaries for functions using AI
-- **Real-time Analysis**: Processes codebases incrementally with file watching
-- **MCP Integration**: Supports Model Context Protocol for AI assistant integration over HTTP
-
-> **📢 Important**: If you're upgrading from a previous version with API server, see [MIGRATION.md](MIGRATION.md) for migration instructions.
+- **Multi-Modal Code Analysis**: Combines graph-based structural analysis with semantic vector search.
+- **Natural Language Queries**: Ask questions about your codebase in plain English.
+- **Function Discovery**: Find functions based on semantic similarity and structural relationships.
+- **Dependency Tracking**: Understand import relationships and function call hierarchies.
+- **AI-Powered Summaries**: Automatically generates summaries for functions using LLMs.
+- **Real-time Analysis**: Processes codebases incrementally with file watching.
+- **MCP Integration**: Integrates with your text editor or AI agent via MCP.
 
 ## Model Context Protocol (MCP) Integration
 
 GraphSense provides an HTTP-based MCP server to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
 
-#### MCP HTTP Server
+### MCP Configuration
+
+GraphSense provides a Model Context Protocol (MCP) server that integrates with AI assistants like Claude Desktop. The MCP server uses stdio transport and is automatically started when you run the main application.
+
+#### Starting GraphSense with MCP
 
 ```bash
-# Start MCP server on HTTP (default port 3000)
-npm run build && node build/mcp.js
-
-# Or set custom port
-MCP_PORT=4000 npm run build && node build/mcp.js
+# Start GraphSense (includes MCP server)
+npm run build && node build/entrypoint.js /path/to/your/repo
 ```
+
+The MCP server runs as a child process and communicates via stdio with your AI assistant.
+
+#### Claude Desktop Configuration
+
+Add this to your Claude Desktop configuration file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "graphsense": {
+      "command": "node",
+      "args": ["/path/to/code-graph-rag/build/mcp.js"],
+      "env": {
+        "POSTGRES_URL": "postgresql://postgres:postgres@localhost:5432/graphsense",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+        "PINECONE_API_KEY": "your-pinecone-api-key"
+      }
+    }
+  }
+}
+```
+
+#### Cline VSCode Extension Configuration
+
+Add this to your Cline settings:
+
+```json
+{
+  "cline.mcp": {
+    "servers": [
+      {
+        "name": "graphsense",
+        "command": "node",
+        "args": ["/path/to/code-graph-rag/build/mcp.js"],
+        "env": {
+          "POSTGRES_URL": "postgresql://postgres:postgres@localhost:5432/graphsense",
+          "NEO4J_URI": "bolt://localhost:7687",
+          "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+          "PINECONE_API_KEY": "your-pinecone-api-key"
+        }
+      }
+    ]
+  }
+}
+```
+```
+
+**Note**: When using the main entrypoint (`entrypoint.js`), database URLs are automatically configured based on the Docker containers that are started. The ports may be different if the default ports are already in use.
 
 ### Available MCP Tools
 
 - **`similar_functions`** - Find functions based on semantic description
-- **`function_callers`** - Find functions that call a specific function
-- **`function_callees`** - Find functions called by a specific function
-- **`function_details`** - Get detailed information about a function
+  - Parameters: `function_description` (string), `topK` (number, optional)
+  - Returns: Array of similar functions with similarity scores
 
-### Testing MCP Integration
+- **`function_callers`** - Find functions that call a specific function
+  - Parameters: `functionId` (string) - The element ID of the target function
+  - Returns: Array of caller functions with their IDs and names
+
+- **`function_callees`** - Find functions called by a specific function
+  - Parameters: `functionId` (string) - The element ID of the source function
+  - Returns: Array of called functions with their IDs and names
+
+- **`function_details`** - Get detailed information about a specific function
+  - Parameters: `functionId` (string) - The element ID of the function
+  - Returns: Function details including name, code, and summary
+
+### MCP Usage Examples
+
+Once configured, you can use natural language queries in your AI assistant:
+
+```
+"Find functions that handle user authentication"
+"Show me functions that call the validateUser function"
+"What functions are called by the processPayment function?"
+"Get details about the function with ID 4:abc123:456"
+```
+
+### MCP Troubleshooting
+
+#### Connection Issues
+
+1. **Database Connection Errors**
+   ```bash
+   # Check if PostgreSQL is running
+   docker ps | grep postgres
+
+   # Check if Neo4j is running
+   docker ps | grep neo4j
+
+   # Test database connections
+   psql -h localhost -p 5432 -U postgres -d graphsense
+   ```
+
+2. **Port Conflicts**
+   - Default PostgreSQL port: 5432
+   - Default Neo4j port: 7687
+   - Check `docker ps` output for actual ports if different
+
+3. **Environment Variables**
+   Verify required environment variables are set in `~/.graphsense/.env`.
+   If not:
+
+   ```bash
+   # Create a dedicated config directory
+   mkdir -p ~/.graphsense
+
+   # Store environment variables securely
+   cat > ~/.graphsense/.env << EOF
+   ANTHROPIC_API_KEY=your-key-here
+   PINECONE_API_KEY=your-key-here
+   EOF
+
+   # Set proper permissions
+   chmod 600 ~/.graphsense/.env
+   ```
+
+#### Common Issues
+
+- **"No functions found"**: Ensure your repository has been indexed first
+- **"Connection refused"**: Check if database containers are running
+- **"Permission denied"**: Verify file paths and permissions in MCP config
+- **"API key invalid"**: Confirm your Anthropic and Pinecone API keys are correct
+
+#### Debugging MCP Server
 
 ```bash
-# Check server health
-curl http://localhost:3000/health
+# Run with debug output
+DEBUG=* node build/mcp.js
 
-# Test MCP endpoint
-curl -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}'
+# Check server logs
+tail -f ~/.graphsense/logs/mcp.log
 ```
+
+### MCP Security and Best Practices
+
+#### Best Practices
+
+1. **Configuration Management**
 
 ## Architecture
 
@@ -107,68 +196,16 @@ The system uses a hybrid approach combining:
 ## Prerequisites
 
 - Node.js 16+
-- Docker and Docker Compose (for Docker deployment)
-- Git
+- Docker
 - API Keys for:
-  - Google Generative AI (Gemini) - [Get API Key](https://aistudio.google.com/app/apikey)
   - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
   - Pinecone - [Get API Key](https://app.pinecone.io/)
-  
-
-## Installation & Setup
-
-### Option 1: Interactive Setup (Recommended)
-
-```bash
-git clone <repository-url>
-cd code-graph-rag
-./quick-start.sh
-```
-
-### Option 2: Manual Setup
-
-1. **Clone and install**
-   ```bash
-   git clone <repository-url>
-   cd code-graph-rag
-   npm install
-   ```
-
-2. **Configure environment**
-   ```bash
-   # Copy template and edit with your values
-   cp .env.template .env
-   nano .env
-
-   # Validate configuration
-   npm run env:validate
-   ```
-
-3. **Choose deployment method**
-
-   **Local Development:**
-   ```bash
-   npm run dev
-   ```
-
-   **Docker Development:**
-   ```bash
-   npm run docker:setup
-   ```
-
-   **Production:**
-   ```bash
-   npm run prod
-   ```
 
 ### Environment Variables
 
 Required variables (must be set):
-- `GOOGLE_GENERATIVE_AI_API_KEY` - Gemini API key
 - `ANTHROPIC_API_KEY` - Claude API key
-
 - `PINECONE_API_KEY` - Pinecone API key
-
 - `HOME` - Home directory path
 
 ### Database Configuration
@@ -178,91 +215,15 @@ The system uses two databases:
 - **PostgreSQL with pgvector**: Stores function embeddings and metadata
 - **Neo4j**: Stores code structure and relationships
 
-When using Docker (recommended), both databases are automatically configured via `docker-compose.yml`:
-
-```yaml
-# PostgreSQL with pgvector extension
-postgres:
-  image: pgvector/pgvector:pg16
-  environment:
-    - POSTGRES_DB=graphsense
-    - POSTGRES_USER=postgres
-    - POSTGRES_PASSWORD=postgres
-  ports:
-    - "5432:5432"
-
-# Neo4j graph database
-neo4j:
-  image: neo4j:latest
-  environment:
-    - NEO4J_AUTH=none
-  ports:
-    - "7474:7474"  # Web interface
-    - "7687:7687"  # Bolt protocol
-```
+Both databases are automatically started via docker, for each repository path there will be a
+separate set of these 2 databases.
 
 **Local Development**: The application connects to `localhost:5432` (PostgreSQL) and `localhost:7687` (Neo4j) by default.
-
-**Docker Development**: Connections are handled automatically via Docker networking.
-
-Optional variables:
-- `NODE_ENV` - Environment (development/production)
-- `PORT` - Server port (default: 8080)
-- `LOG_LEVEL` - Logging level (default: info)
-
 See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
-
-## Available Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development services (file watcher + MCP server) |
-| `npm run prod` | Start production services |
-| `npm run watch` | Start file watcher for real-time code analysis |
-| `npm run build` | Build TypeScript to JavaScript |
-| `npm start` | Run initial indexing on a repository |
-| `npm run docker:setup` | Complete Docker environment setup |
-| `npm run docker:start` | Start Docker services |
-| `npm run docker:stop` | Stop Docker services |
-| `npm run docker:logs` | View Docker logs |
-| `npm run env:validate` | Validate environment configuration |
 
 ## Usage
 
 ### Indexing a Repository
-
-1. **Set the repository URI** in your `.env` file:
-   ```env
-   # No longer needed - repository path is passed as command line argument
-   ```
-
-2. **Run the indexing process**:
-   ```bash
-   node build/index.js
-   ```
-
-   This will:
-   - Clone the repository (if remote)
-   - Parse JavaScript/TypeScript files
-   - Extract function definitions and import relationships
-   - Generate AI summaries for functions
-   - Create vector embeddings
-   - Store everything in Neo4j and PostgreSQL
-
-### Real-time File Watching
-
-For continuous monitoring and real-time code analysis, use the file watcher:
-
-```bash
-# Watch current directory
-npm run watch .
-
-# Watch specific directory
-npm run watch /path/to/your/codebase
-
-# Or use directly with Node.js
-node build/watcher.js /path/to/watch
-```
 
 The file watcher will:
 - Monitor specified directory for file changes (recursively)
@@ -280,77 +241,7 @@ The file watcher will:
 - **Error Handling**: Continues monitoring even if individual files fail
 - **Real-time Logging**: Shows which files are being processed
 
-**Example Usage:**
-```bash
-# Start watching your project directory
-npm run watch /home/user/my-project
-
-# Output:
-# Starting file watcher on: /home/user/my-project
-# Watching extensions: .js, .ts, .json
-# File watcher started successfully
-# File changed: /home/user/my-project/src/utils.ts
-# Calling index.ts with path: /home/user/my-project/src/utils.ts
-# Successfully processed: /home/user/my-project/src/utils.ts
-```
-
-To stop the watcher, press `Ctrl+C` for graceful shutdown.
-
-### Starting the Services
-
-The services start automatically with the setup scripts:
-
-```bash
-# Development mode (includes file watcher and MCP server)
-npm run dev
-
-# Production mode
-npm run prod
-
-# Development with entrypoint
-npm run dev:entrypoint
-```
-
-The system will start the following services:
-- **File Watcher**: Monitors repository for changes and processes files automatically
-- **MCP HTTP Server**: Provides AI assistant integration on port 3000 (configurable via `MCP_PORT`)
-
-### MCP HTTP Endpoints
-
-#### Health & Status
-- `GET /health` - MCP server health check
-
-#### MCP Protocol
-- `POST /mcp` - Main MCP endpoint for client-server communication
-- `GET /mcp` - Server-to-client notifications via SSE
-- `DELETE /mcp` - Session termination
-
-**Example Health Check:**
-```bash
-curl http://localhost:3000/health
-```
-
-Response:
-```json
-{
-  "status": "ok",
-  "service": "GraphSense MCP HTTP Server (Fastify)",
-  "version": "1.0.0",
-  "activeSessions": 0
-}
-```
-
 ### MCP Integration
-
-The system provides an HTTP-based MCP server for integration with AI assistants:
-
-```bash
-# Start MCP HTTP server
-node build/mcp.js
-
-# Or with custom port
-MCP_PORT=4000 node build/mcp.js
-```
 
 Available MCP tools:
 - `similar_functions`: Search functions by semantic meaning
@@ -387,7 +278,6 @@ Available MCP tools:
 ### AI Models
 
 The system uses multiple AI providers:
-- **Gemini 2.0**: Primary model for function summarization and query planning
 - **Claude 3.5 Sonnet**: Backup model and natural language processing
 - **Pinecone**: Vector embeddings and similarity ranking
 
@@ -434,110 +324,17 @@ npx tsc --watch
 
 ## Troubleshooting
 
-### Environment Issues
-
-**Missing API Keys:**
-```bash
-# Validate your configuration
-npm run env:validate
-
-# Check specific issues
-❌ Missing required environment variables:
-   - GOOGLE_GENERATIVE_AI_API_KEY
-```
-Solution: Set missing variables in `.env` file or environment.
-
-**Invalid Configuration:**
-```bash
-# Use validation script for detailed feedback
-npm run env:validate
-```
-
-### Service Issues
-
-**Database Connection Errors:**
-```bash
-# Check Docker services
-docker-compose ps
-
-# View logs
-npm run docker:logs
-```
-
-**Application Not Starting:**
-```bash
-# Check MCP server health
-curl http://localhost:3000/health
-
-# View detailed logs
-npm run docker:logs
-```
-
-### Common Solutions
-
-1. **Environment Setup**
-   ```bash
-   # Reset environment
-   cp .env.template .env
-   # Edit .env with your values
-   npm run env:validate
-   ```
-
-2. **Docker Issues**
-   ```bash
-   # Restart Docker services
-   npm run docker:stop
-   npm run docker:start
-
-   # Complete cleanup and restart
-   npm run docker:cleanup
-   npm run docker:setup
-   ```
-
-3. **Memory Issues**
-   ```bash
-   # Increase Node.js memory
-   NODE_OPTIONS="--max-old-space-size=4096" npm run dev
-   ```
-
-4. **Port Conflicts**
-   ```bash
-   # Change MCP port
-   MCP_PORT=4000 npm run dev
-   ```
-
 ### Getting Help
 
 1. **Check Documentation**
-   - [MIGRATION.md](MIGRATION.md) - Migration guide for API to MCP HTTP transition
    - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment configuration
-   - `.env.template` - Configuration template
+   - `.env.example` - Configuration template
 
 2. **Validation Tools**
    ```bash
    npm run env:validate  # Validate configuration
    npm run health        # Check application health
    ```
-
-3. **Debug Information**
-   ```bash
-   # Enable debug logging
-   DEBUG=graphsense:* npm run dev
-
-   # Check MCP server status
-   curl http://localhost:3000/health
-
-   # Check service status
-   npm run docker:logs
-   ```
-
-### Performance Optimization
-
-- Use incremental indexing for large repositories
-- Adjust batch sizes for vector operations
-- Configure database connection pools
-- Monitor API rate limits
-- Use production environment variables for better performance
 
 ## Contributing
 
@@ -550,10 +347,3 @@ npm run docker:logs
 ## License
 
 [Add your license information here]
-
-## Support
-
-For issues and questions:
-- Check the troubleshooting section
-- Review the API documentation
-- Open an issue on GitHub

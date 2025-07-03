@@ -1,28 +1,10 @@
 {
+  "bin": {
+    "graphsense": "./build/entrypoint.js"
+  },
   "scripts": {
     "build": "tsc",
-    "dev": "npm run build && chmod +x scripts/start-dev.sh && ./scripts/start-dev.sh",
-    "dev:entrypoint": "chmod +x entrypoint-dev.js && node entrypoint-dev.js",
-    "prod": "npm run build && chmod +x scripts/start-prod.sh && ./scripts/start-prod.sh",
-    "mcp": "npm run build && node build/mcp.js",
-    "start": "npm run build && node build/index.js",
-    "start:full": "chmod +x entrypoint.js && node entrypoint.js",
-    "start:shell": "chmod +x start.sh && ./start.sh",
-    "entrypoint": "node entrypoint.js",
-    "test": "mocha test/*.test.js",
-    "test:entrypoint": "mocha test/entrypoint.test.js",
-    "docker:setup": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh setup",
-    "docker:start": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh start",
-    "docker:stop": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh stop",
-    "docker:logs": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh logs",
-    "docker:cleanup": "chmod +x scripts/docker-setup.sh && ./scripts/docker-setup.sh cleanup",
-    "env:check": "node scripts/validate-env.js",
-    "env:validate": "node scripts/validate-env.js",
-    "db:test": "node scripts/test-db.js",
-    "health": "curl -f http://localhost:${MCP_PORT:-8080}/health || echo 'MCP server not running'",
-    "watch": "npm run build && node build/watcher.js",
-    "mcp:dev": "npm run build && MCP_PORT=8080 node build/mcp.js",
-    "mcp:test": "curl -X POST http://localhost:8080/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {}}'"
+    "build:watch": "tsc --watch"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.10",

@@ -12,14 +12,16 @@ import * as dotenv from "dotenv";
 const execAsync = promisify(exec);
 
 // Load environment variables from ~/.graphsense/.env
-const graphsenseDir = path.join(os.homedir(), '.graphsense');
-const envFile = path.join(graphsenseDir, '.env');
+const graphsenseDir = path.join(os.homedir(), ".graphsense");
+const envFile = path.join(graphsenseDir, ".env");
 
 if (fs.existsSync(envFile)) {
   dotenv.config({ path: envFile });
   console.log(`Loaded environment variables from ${envFile}`);
 } else {
-  console.log(`Environment file not found at ${envFile}, using system environment variables`);
+  console.log(
+    `Environment file not found at ${envFile}, using system environment variables`,
+  );
 }
 
 // Configuration
@@ -70,9 +72,9 @@ function logError(message: string, process = "MAIN"): void {
 
 // Create SHA hash of repository path
 function createRepoHash(repoPath: string): string {
-  const hash = crypto.createHash('sha256');
+  const hash = crypto.createHash("sha256");
   hash.update(repoPath);
-  return hash.digest('hex').substring(0, 16);
+  return hash.digest("hex").substring(0, 16);
 }
 
 // Check if port is in use
@@ -88,7 +90,7 @@ async function isPortInUse(port: number): Promise<boolean> {
 // Find available ports
 async function findAvailablePorts(preferredPorts: number[]): Promise<number[]> {
   const availablePorts: number[] = [];
-  
+
   for (const port of preferredPorts) {
     const inUse = await isPortInUse(port);
     if (!inUse) {
@@ -100,37 +102,44 @@ async function findAvailablePorts(preferredPorts: number[]): Promise<number[]> {
       log(`Port ${port} is in use, using ${alternativePort} instead`);
     }
   }
-  
+
   return availablePorts;
 }
 
 // Check if docker container exists and is running
-async function getContainerInfo(containerName: string): Promise<ContainerInfo | null> {
+async function getContainerInfo(
+  containerName: string,
+): Promise<ContainerInfo | null> {
   try {
-    const { stdout } = await execAsync(`docker ps -a --filter name=${containerName} --format "{{.Names}},{{.Status}},{{.Ports}}"`);
-    
+    const { stdout } = await execAsync(
+      `docker ps -a --filter name=${containerName} --format "{{.Names}},{{.Status}},{{.Ports}}"`,
+    );
+
     if (!stdout.trim()) {
       return null;
     }
-    
-    const [name, status, portsStr] = stdout.trim().split(',');
-    const running = status.includes('Up');
+
+    const [name, status, portsStr] = stdout.trim().split(",");
+    const running = status.includes("Up");
     const ports: { host: number; container: number }[] = [];
-    
+
     // Parse port mappings like "0.0.0.0:5432->5432/tcp"
     if (portsStr) {
       const portMatches = portsStr.match(/0\.0\.0\.0:(\d+)->(\d+)/g);
       if (portMatches) {
         for (const match of portMatches) {
-          const [hostPort, containerPort] = match.split('->')[0].split(':')[1].split('-');
+          const [hostPort, containerPort] = match
+            .split("->")[0]
+            .split(":")[1]
+            .split("-");
           ports.push({
             host: parseInt(hostPort),
-            container: parseInt(containerPort.split('/')[0])
+            container: parseInt(containerPort.split("/")[0]),
           });
         }
       }
     }
-    
+
     return { name, running, ports };
   } catch {
     return null;
@@ -138,30 +147,34 @@ async function getContainerInfo(containerName: string): Promise<ContainerInfo | 
 }
 
 // Start or get existing postgres container
-async function setupPostgresContainer(repoHash: string): Promise<{ host: number; container: number }> {
+async function setupPostgresContainer(
+  repoHash: string,
+): Promise<{ host: number; container: number }> {
   const containerName = `graphsense-postgres-${repoHash}`;
   const preferredPort = 5432;
-  
+
   const existingContainer = await getContainerInfo(containerName);
-  
+
   if (existingContainer?.running) {
-    const pgPort = existingContainer.ports.find(p => p.container === 5432);
+    const pgPort = existingContainer.ports.find((p) => p.container === 5432);
     if (pgPort) {
       log(`Using existing postgres container on port ${pgPort.host}`);
       return pgPort;
     }
   }
-  
+
   // Find available port
   const [hostPort] = await findAvailablePorts([preferredPort]);
-  
+
   if (existingContainer && !existingContainer.running) {
     log(`Starting existing postgres container ${containerName}...`);
     await execAsync(`docker start ${containerName}`);
   } else {
-    log(`Creating new postgres container ${containerName} on port ${hostPort}...`);
-    const postgresPassword = process.env.POSTGRES_PASSWORD || 'postgres';
-    
+    log(
+      `Creating new postgres container ${containerName} on port ${hostPort}...`,
+    );
+    const postgresPassword = process.env.POSTGRES_PASSWORD || "postgres";
+
     await execAsync(`docker run -d \\
       --name ${containerName} \\
       --restart unless-stopped \\
@@ -172,42 +185,44 @@ async function setupPostgresContainer(repoHash: string): Promise<{ host: number;
       -e POSTGRES_PASSWORD=${postgresPassword} \\
       pgvector/pgvector:pg17`);
   }
-  
+
   // Track container for cleanup
   runningContainers.add(containerName);
-  
+
   // Wait for postgres to be ready
   log("Waiting for postgres to be ready...");
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
   return { host: hostPort, container: 5432 };
 }
 
 // Start or get existing neo4j container
-async function setupNeo4jContainer(repoHash: string): Promise<{ host: number; container: number }> {
+async function setupNeo4jContainer(
+  repoHash: string,
+): Promise<{ host: number; container: number }> {
   const containerName = `graphsense-neo4j-${repoHash}`;
   const preferredPort = 7687;
-  
+
   const existingContainer = await getContainerInfo(containerName);
-  
+
   if (existingContainer?.running) {
-    const neo4jPort = existingContainer.ports.find(p => p.container === 7687);
+    const neo4jPort = existingContainer.ports.find((p) => p.container === 7687);
     if (neo4jPort) {
       log(`Using existing neo4j container on port ${neo4jPort.host}`);
       return neo4jPort;
     }
   }
-  
+
   // Find available port
   const [hostPort] = await findAvailablePorts([preferredPort]);
-  
+
   if (existingContainer && !existingContainer.running) {
     log(`Starting existing neo4j container ${containerName}...`);
     await execAsync(`docker start ${containerName}`);
   } else {
     log(`Creating new neo4j container ${containerName} on port ${hostPort}...`);
-    const neo4jAuth = process.env.NEO4J_AUTH || 'none';
-    
+    const neo4jAuth = process.env.NEO4J_AUTH || "none";
+
     await execAsync(`docker run -d \\
       --name ${containerName} \\
       --restart unless-stopped \\
@@ -224,14 +239,14 @@ async function setupNeo4jContainer(repoHash: string): Promise<{ host: number; co
       -e NEO4J_PLUGINS=apoc \\
       neo4j:latest`);
   }
-  
+
   // Track container for cleanup
   runningContainers.add(containerName);
-  
+
   // Wait for neo4j to be ready
   log("Waiting for neo4j to be ready...");
-  await new Promise(resolve => setTimeout(resolve, 10000));
-  
+  await new Promise((resolve) => setTimeout(resolve, 10000));
+
   return { host: hostPort, container: 7687 };
 }
 
@@ -246,7 +261,12 @@ function checkRepositoryPath(): void {
 }
 
 // Start a process and track it
-function startProcess(name: string, command: string, args: string[] = [], options: any = {}): Promise<ChildProcess> {
+function startProcess(
+  name: string,
+  command: string,
+  args: string[] = [],
+  options: any = {},
+): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     log(`Starting ${name}...`, name);
 
@@ -294,7 +314,10 @@ function startProcess(name: string, command: string, args: string[] = [], option
         if (code === 0) {
           log(`${name} exited normally`, name);
         } else {
-          logError(`${name} exited with code ${code} and signal ${signal}`, name);
+          logError(
+            `${name} exited with code ${code} and signal ${signal}`,
+            name,
+          );
         }
       }
     });
@@ -326,10 +349,12 @@ function startInitialIndexing(pgPort: number, neo4jPort: number): void {
     NEO4J_URI: `bolt://localhost:${neo4jPort}`,
   };
 
-  startProcess(PROCESSES.INDEXING, "node", [
-    path.join(BUILD_DIR, "index.js"),
-    REPO_PATH,
-  ], { env }).catch(error => {
+  startProcess(
+    PROCESSES.INDEXING,
+    "node",
+    [path.join(__dirname, "index.js"), REPO_PATH],
+    { env },
+  ).catch((error) => {
     logError(`Failed to start indexing: ${error.message}`);
   });
 }
@@ -343,29 +368,28 @@ function startWatcher(pgPort: number, neo4jPort: number): void {
     NEO4J_URI: `bolt://localhost:${neo4jPort}`,
   };
 
-  startProcess(PROCESSES.WATCHER, "node", [
-    path.join(BUILD_DIR, "watcher.js"),
-    REPO_PATH,
-  ], { env }).catch(error => {
+  startProcess(
+    PROCESSES.WATCHER,
+    "node",
+    [path.join(BUILD_DIR, "watcher.js"), REPO_PATH],
+    { env },
+  ).catch((error) => {
     logError(`Failed to start watcher: ${error.message}`);
   });
 }
 
 // Start MCP HTTP server as child process
 function startMcpServer(pgPort: number, neo4jPort: number): void {
-  const mcpPort = process.env.MCP_PORT || "8080";
   const env = {
     ...process.env,
-    NODE_ENV: "production",
-    PORT: mcpPort,
     POSTGRES_URL: `postgresql://postgres:postgres@localhost:${pgPort}/graphsense`,
     NEO4J_URI: `bolt://localhost:${neo4jPort}`,
   };
 
-  startProcess(PROCESSES.MCP, "node", [path.join(BUILD_DIR, "mcp.js")], {
+  startProcess(PROCESSES.MCP, "node", [path.join(__dirname, "mcp.js")], {
     stdio: "inherit",
     env,
-  }).catch(error => {
+  }).catch((error) => {
     logError(`Failed to start MCP server: ${error.message}`);
   });
 }
@@ -384,7 +408,11 @@ async function stopContainers(): Promise<void> {
     containerStopPromises.push(
       execAsync(`docker stop ${containerName}`)
         .then(() => log(`Container ${containerName} stopped`))
-        .catch((error) => logError(`Failed to stop container ${containerName}: ${error.message}`))
+        .catch((error) =>
+          logError(
+            `Failed to stop container ${containerName}: ${error.message}`,
+          ),
+        ),
     );
   }
 
@@ -462,7 +490,7 @@ function performHealthCheck(): void {
 // Main function
 async function main(): Promise<void> {
   try {
-    log("Starting GraphSense Code Analysis Platform...");
+    log("Starting GraphSense...");
 
     // Pre-flight checks
     checkRepositoryPath();
@@ -483,10 +511,10 @@ async function main(): Promise<void> {
 
     // Start all services as child processes (non-blocking)
     log("Starting all services...");
-    
+
     // Start initial indexing (non-blocking)
     startInitialIndexing(pgPorts.host, neo4jPorts.host);
-    
+
     // Start file watcher (non-blocking)
     startWatcher(pgPorts.host, neo4jPorts.host);
 
@@ -495,8 +523,6 @@ async function main(): Promise<void> {
 
     log("All services started successfully!");
     log("GraphSense is ready to use:");
-    log(`  - MCP HTTP Server: http://localhost:${process.env.MCP_PORT || 8080}`);
-    log(`  - MCP Health Check: http://localhost:${process.env.MCP_PORT || 8080}/health`);
     log(`  - File Watcher: Monitoring ${REPO_PATH}`);
     log(`  - Postgres: localhost:${pgPorts.host}`);
     log(`  - Neo4j: bolt://localhost:${neo4jPorts.host}`);
@@ -531,8 +557,4 @@ if (require.main === module) {
   main();
 }
 
-export {
-  main,
-  startProcess,
-  gracefulShutdown,
-};
+export { main, startProcess, gracefulShutdown };

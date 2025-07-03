@@ -1,8 +1,10 @@
 # GraphSense Code Graph RAG
 
-A powerful code analysis and retrieval system that combines graph databases, vector search, and AI to understand and query codebases through natural language. GraphSense indexes JavaScript/TypeScript codebases into both a Neo4j graph database and a PostgreSQL vector database, enabling sophisticated queries about code structure, dependencies, and semantic relationships.
+A code analysis and retrieval system that combines graph databases, vector search, and LLMs to understand and query codebases through natural language.
 
-## Quick Start
+---
+
+It indexes JavaScript/TypeScript codebases into both a Neo4j graph database and a PostgreSQL vector database, enabling sophisticated queries about code structure, dependencies, and semantic relationships.
 
 ## Features
 
@@ -14,22 +16,40 @@ A powerful code analysis and retrieval system that combines graph databases, vec
 - **Real-time Analysis**: Processes codebases incrementally with file watching.
 - **MCP Integration**: Integrates with your text editor or AI agent via MCP.
 
+## Quick Start
+
+```bash
+$ npx graphsense ~/path/to/repo
+```
+Note: You will need environment variables declared in `~/.graphsense/.env`:
+
+### Environment Variables
+
+Required variables (must be set):
+- `ANTHROPIC_API_KEY` - Claude API key
+- `PINECONE_API_KEY` - Pinecone API key
+
+### Prerequisites
+
+- Node.js 16+
+- Docker
+- API Keys for:
+  - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
+  - Pinecone - [Get API Key](https://app.pinecone.io/)
+
 ## Model Context Protocol (MCP) Integration
 
-GraphSense provides an HTTP-based MCP server to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
+GraphSense provides an MCP server to integrate with AI assistants like Claude Desktop, enabling natural language queries about your codebase.
 
 ### MCP Configuration
 
-GraphSense provides a Model Context Protocol (MCP) server that integrates with AI assistants like Claude Desktop. The MCP server uses stdio transport and is automatically started when you run the main application.
+The MCP server uses stdio transport and is automatically started when you run the main application.
 
-#### Starting GraphSense with MCP
+#### Starting GraphSense MCP
 
 ```bash
-# Start GraphSense (includes MCP server)
-npm run build && node build/entrypoint.js /path/to/your/repo
+$ npx graphsense ~/path/to/repo
 ```
-
-The MCP server runs as a child process and communicates via stdio with your AI assistant.
 
 #### Claude Desktop Configuration
 
@@ -42,45 +62,15 @@ Add this to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "graphsense": {
-      "command": "node",
-      "args": ["/path/to/code-graph-rag/build/mcp.js"],
-      "env": {
-        "POSTGRES_URL": "postgresql://postgres:postgres@localhost:5432/graphsense",
-        "NEO4J_URI": "bolt://localhost:7687",
-        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
-        "PINECONE_API_KEY": "your-pinecone-api-key"
-      }
+      "command": "npx",
+      "args": ["graphsense", "~/path/to/repo"],
+      "env": {}
     }
   }
 }
 ```
 
-#### Cline VSCode Extension Configuration
-
-Add this to your Cline settings:
-
-```json
-{
-  "cline.mcp": {
-    "servers": [
-      {
-        "name": "graphsense",
-        "command": "node",
-        "args": ["/path/to/code-graph-rag/build/mcp.js"],
-        "env": {
-          "POSTGRES_URL": "postgresql://postgres:postgres@localhost:5432/graphsense",
-          "NEO4J_URI": "bolt://localhost:7687",
-          "ANTHROPIC_API_KEY": "your-anthropic-api-key",
-          "PINECONE_API_KEY": "your-pinecone-api-key"
-        }
-      }
-    ]
-  }
-}
-```
-```
-
-**Note**: When using the main entrypoint (`entrypoint.js`), database URLs are automatically configured based on the Docker containers that are started. The ports may be different if the default ports are already in use.
+> Note: Your preferred AI coding editor/agent will have similar configuration options.
 
 ### Available MCP Tools
 
@@ -104,12 +94,19 @@ Add this to your Cline settings:
 
 Once configured, you can use natural language queries in your AI assistant:
 
-```
-"Find functions that handle user authentication"
-"Show me functions that call the validateUser function"
-"What functions are called by the processPayment function?"
-"Get details about the function with ID 4:abc123:456"
-```
+#### Example Queries
+
+**Natural Language Queries:**
+- "Find all functions that handle user authentication"
+- "Which functions have more than 5 callers?"
+- "Show me functions related to database operations"
+- "What files import the authentication module?"
+
+**Structural Queries:**
+- Functions with high coupling (many callers/callees)
+- Import dependency chains
+- Orphaned functions (no callers)
+- Cross-module function calls
 
 ### MCP Troubleshooting
 
@@ -167,12 +164,6 @@ DEBUG=* node build/mcp.js
 tail -f ~/.graphsense/logs/mcp.log
 ```
 
-### MCP Security and Best Practices
-
-#### Best Practices
-
-1. **Configuration Management**
-
 ## Architecture
 
 The system uses a hybrid approach combining:
@@ -193,20 +184,7 @@ The system uses a hybrid approach combining:
    - Sparse embeddings index
    - Pinecone similarity-based ranking for result optimization
 
-## Prerequisites
 
-- Node.js 16+
-- Docker
-- API Keys for:
-  - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
-  - Pinecone - [Get API Key](https://app.pinecone.io/)
-
-### Environment Variables
-
-Required variables (must be set):
-- `ANTHROPIC_API_KEY` - Claude API key
-- `PINECONE_API_KEY` - Pinecone API key
-- `HOME` - Home directory path
 
 ### Database Configuration
 
@@ -218,66 +196,11 @@ The system uses two databases:
 Both databases are automatically started via docker, for each repository path there will be a
 separate set of these 2 databases.
 
-**Local Development**: The application connects to `localhost:5432` (PostgreSQL) and `localhost:7687` (Neo4j) by default.
 See [ENVIRONMENT.md](ENVIRONMENT.md) for complete configuration guide.
 
-## Usage
+## AI Models
 
-### Indexing a Repository
-
-The file watcher will:
-- Monitor specified directory for file changes (recursively)
-- Watch `.js`, `.ts`, and `.json` files by default
-- Ignore `node_modules`, `.git`, `build`, `dist`, and log files
-- Debounce changes (1 second delay) to avoid duplicate processing
-- Automatically call `index.ts` with the changed file's absolute path
-- Process files incrementally as they're modified
-
-**File Watcher Features:**
-- **Recursive Monitoring**: Watches entire directory trees
-- **Smart Filtering**: Only processes relevant file types
-- **Debouncing**: Prevents duplicate processing of rapid changes
-- **Graceful Shutdown**: Handles Ctrl+C and termination signals
-- **Error Handling**: Continues monitoring even if individual files fail
-- **Real-time Logging**: Shows which files are being processed
-
-### MCP Integration
-
-Available MCP tools:
-- `similar_functions`: Search functions by semantic meaning
-- `function_callers`: Find functions that call a specific function
-- `function_callees`: Find functions called by a specific function
-- `function_details`: Get detailed information about a function
-
-### Example Queries
-
-**Natural Language Queries:**
-- "Find all functions that handle user authentication"
-- "Which functions have more than 5 callers?"
-- "Show me functions related to database operations"
-- "What files import the authentication module?"
-
-**Structural Queries:**
-- Functions with high coupling (many callers/callees)
-- Import dependency chains
-- Orphaned functions (no callers)
-- Cross-module function calls
-
-## Configuration
-
-### Database Schema
-
-**Neo4j Constraints:**
-- Unique file paths
-- Unique function name-path combinations
-
-**PostgreSQL Schema:**
-- Functions table with vector embeddings
-- Support for pgvector similarity search
-
-### AI Models
-
-The system uses multiple AI providers:
+The system uses 2 AI providers:
 - **Claude 3.5 Sonnet**: Backup model and natural language processing
 - **Pinecone**: Vector embeddings and similarity ranking
 
@@ -300,17 +223,9 @@ src/
 ├── index.ts        # Main indexing logic
 ├── mcp.ts          # Model Context Protocol HTTP server
 ├── parse.ts        # Code parsing and AI processing
-└── watcher.ts      # File watcher for real-time analysis
+├── watcher.ts      # File watcher for real-time analysis
+└── entrypoint.ts   # Entrypoint for the package
 ```
-
-### Key Components
-
-- **Code Parser**: TypeScript AST parsing for function extraction
-- **AI Processor**: Function summarization using Gemini
-- **Graph Builder**: Neo4j relationship construction
-- **Vector Indexer**: Pinecone embedding storage
-- **MCP HTTP Server**: Model Context Protocol server for AI assistant integration
-- **File Watcher**: Real-time code analysis and indexing
 
 ### Building
 
@@ -321,28 +236,6 @@ npx tsc
 # Watch mode for development
 npx tsc --watch
 ```
-
-## Troubleshooting
-
-### Getting Help
-
-1. **Check Documentation**
-   - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment configuration
-   - `.env.example` - Configuration template
-
-2. **Validation Tools**
-   ```bash
-   npm run env:validate  # Validate configuration
-   npm run health        # Check application health
-   ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
 
 ## License
 

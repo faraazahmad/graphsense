@@ -19,7 +19,11 @@ It indexes JavaScript/TypeScript codebases into both a Neo4j graph database and 
 ## Quick Start
 
 ```bash
-$ npx graphsense ~/path/to/repo
+# Navigate to your git repository
+$ cd ~/path/to/repo
+
+# Run GraphSense from within the repository
+$ npx graphsense
 ```
 Note: You will need environment variables declared in `~/.graphsense/.env`:
 
@@ -33,6 +37,7 @@ Required variables (must be set):
 
 - Node.js 16+
 - Docker
+- Must be run from within a git repository (GraphSense will exit if not)
 - API Keys for:
   - Anthropic (Claude) - [Get API Key](https://console.anthropic.com/)
   - Pinecone - [Get API Key](https://app.pinecone.io/)
@@ -48,7 +53,11 @@ The MCP server uses stdio transport and is automatically started when you run th
 #### Starting GraphSense MCP
 
 ```bash
-$ npx graphsense ~/path/to/repo
+# Navigate to your git repository
+$ cd ~/path/to/repo
+
+# Run GraphSense from within the repository
+$ npx graphsense
 ```
 
 #### Claude Desktop Configuration
@@ -63,7 +72,7 @@ Add this to your Claude Desktop configuration file:
   "mcpServers": {
     "graphsense": {
       "command": "npx",
-      "args": ["graphsense", "~/path/to/repo"],
+      "args": ["graphsense"],
       "env": {}
     }
   }

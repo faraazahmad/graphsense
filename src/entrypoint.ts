@@ -37,15 +37,15 @@ const PROCESSES = {
   INDEXING: "indexing",
 } as const;
 
-// Get repo path from command line arguments
-const repoArg = process.argv[2];
-if (!repoArg) {
-  console.error("Error: Repository path is required as first argument");
-  console.error("Usage: node entrypoint.ts <repo-path>");
+// Get repo path from current working directory
+const REPO_PATH = process.cwd();
+
+// Check if current directory is a git repository
+if (!fs.existsSync(path.join(REPO_PATH, '.git'))) {
+  console.error("Error: Current directory is not a git repository");
+  console.error("Please run this command from within a git repository");
   process.exit(1);
 }
-const REPO_PATH = path.resolve(repoArg);
-const BUILD_DIR = path.join(__dirname);
 
 // Process tracking
 const runningProcesses = new Map<string, ChildProcess>();

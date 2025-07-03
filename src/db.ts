@@ -5,9 +5,6 @@ import { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, POSTGRES_URL } from "./env";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-console.log(NEO4J_URI)
-console.log(POSTGRES_URL)
-
 export async function executeQuery(query: string, variables: Object) {
   const session = db.graph.client!.session();
   const result = await session.run(query, variables);
@@ -33,39 +30,33 @@ export const db: DBData = {
   },
 };
 
-export async function setupDB(
-  defaultBranch: string = "main",
-  from_scratch: boolean = false,
-) {
-  const auth = NEO4J_PASSWORD
-    ? neo4j.auth.basic(NEO4J_USERNAME, NEO4J_PASSWORD)
-    : undefined;
+export async function setupDB() {
+  try {
+    const auth = NEO4J_PASSWORD
+      ? neo4j.auth.basic(NEO4J_USERNAME, NEO4J_PASSWORD)
+      : undefined;
 
-  db.graph.client = neo4j.driver(NEO4J_URI, auth);
+    db.graph.client = neo4j.driver(NEO4J_URI, auth);
 
-  // Create neo4j constraints
-  await executeQuery(
-    `
+    // Create neo4j constraints
+    await executeQuery(
+      `
       CREATE CONSTRAINT file_path_unique IF NOT EXISTS
       FOR (f:File)
       REQUIRE f.path IS UNIQUE
     `,
-    {},
-  );
-
-  await executeQuery(
-    `
+      {},
+    );
+    await executeQuery(
+      `
       CREATE CONSTRAINT function_name_path_unique IF NOT EXISTS
       FOR (f:Function)
       REQUIRE (f.name, f.path) IS UNIQUE
     `,
-    {},
-  );
+      {},
+    );
 
-  // Connect to local PostgreSQL
-  const connectionString = POSTGRES_URL;
-
-  try {
+    const connectionString = POSTGRES_URL;
     db.relational.client = new Client(connectionString);
     await db.relational.client.connect();
 
@@ -87,7 +78,8 @@ export async function setupDB(
 
     return Promise.resolve(result.rows);
   } catch (error) {
-    console.error("PostgreSQL connection failed:", error);
+    console.log("Failed to setup database(s).");
+    console.error(error);
     return Promise.reject(error);
   }
 }

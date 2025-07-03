@@ -10,12 +10,11 @@ import {
   isStringLiteral,
 } from "typescript";
 import { dirname, resolve } from "node:path";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { globSync } from "glob";
-import { execSync } from "node:child_process";
 import { db, executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration } from "./parse";
-import { HOME_PATH, REPO_PATH, NODE_ENV } from "./env";
+import { REPO_PATH } from "./env";
 import { hash } from "node:crypto";
 
 interface FunctionParseDTO {
@@ -223,31 +222,10 @@ export async function processFunctionParseQueue() {
   console.log("Completed processing function parse queue");
 }
 
-export async function useRepo(): Promise<PrePassResultDTO> {
-  // Use the repository path from environment variable or command line arg
-  const repoPath = getRepoPath();
-  console.log(`Using repository at ${repoPath}`);
-
-  // const defaultBranch = execSync(
-  //   `git -C ${repoPath} rev-parse --abbrev-ref HEAD`,
-  //   {
-  //     encoding: "utf8",
-  //   },
-  // ).trim();
-
-  return Promise.resolve({
-    branch: "main",
-    path: repoPath,
-  });
-}
-
 async function main() {
   try {
+    await setupDB();
     console.log("Starting code analysis...");
-
-    const { branch, path } = await useRepo();
-    console.log(`Setting up database for branch: ${branch}`);
-    await setupDB(branch);
 
     const repoPath = getRepoPath();
     const fileList = globSync(`${repoPath}/**/**/*.js`, {

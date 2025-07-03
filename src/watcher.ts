@@ -1,7 +1,7 @@
 import { watch, FSWatcher } from "node:fs";
 import { resolve, extname } from "node:path";
 import { existsSync } from "node:fs";
-import { parseFile, useRepo } from "./index";
+import { parseFile } from "./index";
 import { db, setupDB } from "./db";
 
 interface WatcherOptions {
@@ -157,9 +157,7 @@ const createShutdownHandler = (state: WatcherState) => (): void => {
 
 // Main function to run the watcher
 const main = async (): Promise<void> => {
-  const { branch, path } = await useRepo();
-  console.log(`Setting up database for branch: ${branch}`);
-  await setupDB(branch);
+  await setupDB();
   const watchPath = process.argv[2];
 
   if (!watchPath) {

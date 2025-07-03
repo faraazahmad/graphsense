@@ -2,7 +2,8 @@ import { watch, FSWatcher } from "node:fs";
 import { resolve, extname } from "node:path";
 import { existsSync } from "node:fs";
 import { parseFile } from "./index";
-import { db, setupDB } from "./db";
+import { setupDB } from "./db";
+import { NEO4J_URI, POSTGRES_URL } from "./env";
 
 interface WatcherOptions {
   watchPath: string;
@@ -157,6 +158,8 @@ const createShutdownHandler = (state: WatcherState) => (): void => {
 
 // Main function to run the watcher
 const main = async (): Promise<void> => {
+  console.log(NEO4J_URI);
+  console.log(POSTGRES_URL);
   await setupDB();
   const watchPath = process.argv[2];
 

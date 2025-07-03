@@ -371,7 +371,7 @@ function startWatcher(pgPort: number, neo4jPort: number): void {
   startProcess(
     PROCESSES.WATCHER,
     "node",
-    [path.join(BUILD_DIR, "watcher.js"), REPO_PATH],
+    [path.join(__dirname, "watcher.js"), REPO_PATH],
     { env },
   ).catch((error) => {
     logError(`Failed to start watcher: ${error.message}`);

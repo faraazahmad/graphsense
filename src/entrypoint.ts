@@ -41,7 +41,7 @@ const PROCESSES = {
 const REPO_PATH = process.cwd();
 
 // Check if current directory is a git repository
-if (!fs.existsSync(path.join(REPO_PATH, '.git'))) {
+if (!fs.existsSync(path.join(REPO_PATH, ".git"))) {
   console.error("Error: Current directory is not a git repository");
   console.error("Please run this command from within a git repository");
   process.exit(1);
@@ -114,12 +114,14 @@ async function getContainerInfo(
     const { stdout } = await execAsync(
       `docker ps -a --filter name=${containerName} --format "{{.Names}},{{.Status}},{{.Ports}}"`,
     );
-
     if (!stdout.trim()) {
       return null;
     }
 
-    const [name, status, portsStr] = stdout.trim().split(",");
+    const parts = stdout.trim().split(",");
+    const name = parts[0];
+    const status = parts[1];
+    const portsStr = parts.slice(2).join(",");
     const running = status.includes("Up");
     const ports: { host: number; container: number }[] = [];
 
@@ -128,20 +130,20 @@ async function getContainerInfo(
       const portMatches = portsStr.match(/0\.0\.0\.0:(\d+)->(\d+)/g);
       if (portMatches) {
         for (const match of portMatches) {
-          const [hostPort, containerPort] = match
-            .split("->")[0]
-            .split(":")[1]
-            .split("-");
+          const [hostPart, containerPart] = match.split("->");
+          const hostPort = hostPart.split(":")[1];
+          const containerPort = containerPart.split("/")[0];
           ports.push({
             host: parseInt(hostPort),
-            container: parseInt(containerPort.split("/")[0]),
+            container: parseInt(containerPort),
           });
         }
       }
     }
 
     return { name, running, ports };
-  } catch {
+  } catch (error) {
+    console.error(error);
     return null;
   }
 }

@@ -10,35 +10,24 @@ import {
   isStringLiteral,
 } from "typescript";
 import { dirname, resolve } from "node:path";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { globSync } from "glob";
-import { execSync } from "node:child_process";
-import { db, executeQuery, setupDB } from "./db";
-import { parseFunctionDeclaration, processFunctionWithAI } from "./parse";
-import { GITHUB_PAT, HOME_PATH, REPO_PATH, REPO_URI, NODE_ENV } from "./env";
+import { executeQuery, setupDB } from "./db";
+import { parseFunctionDeclaration } from "./parse";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
   functionNodeId: string;
   reParse: boolean;
 }
-
-interface PrePassResultDTO {
-  branch: string;
-  path: string;
-}
-
-let parseIndex = 0;
 export const functionParseQueue: Array<FunctionParseDTO> = [];
+
+// Configurable delay for API rate limiting (in milliseconds)
+const API_RATE_LIMIT_DELAY = 1000; // 1 second delay between function parsing calls
 
 interface ImportData {
   clause: string;
   source: string;
-}
-
-interface PrePassResultDTO {
-  branch: string;
-  path: string;
 }
 
 function traverseNodes(filePath: string, node: Node): void | ImportData[] {
@@ -104,32 +93,13 @@ function traverseNodes(filePath: string, node: Node): void | ImportData[] {
       return;
     }
 
-    parseFunctionDeclaration(functionNode, false);
-    // executeQuery(
-    //   `MATCH (function:Function {name: $name, path: $path}) return elementId(function) as id`,
-    //   {
-    //     path: cleanPath(node.getSourceFile().fileName),
-    //     name: functionNode.name?.escapedText,
-    //   },
-    // )
-    //   .then(async (result) => {
-    //     const fileId = result.records.map((rec) => rec.get("id"));
-    //     const fxn = await db.relational.client!.query(
-    //       `select id from functions where id = $1 limit 1`,
-    //       [fileId[0]],
-    //     );
-    //     if (fxn.rows.length) {
-    //       return;
-    //     }
-
-    //     parseFunctionDeclaration(functionNode, false);
-    //   })
-    //   .catch((err) => {
-    //     console.log(functionNode.name?.escapedText);
-    //     console.log(functionNode.getSourceFile().fileName);
-    //     console.error(err);
-    //     process.exit(-1);
-    //   });
+    // Add function to parse queue instead of parsing immediately
+    const functionNodeId = `${cleanPath(filePath)}:${functionNode.name.escapedText.toString()}`;
+    functionParseQueue.push({
+      node: functionNode,
+      functionNodeId,
+      reParse: false,
+    });
   }
   return result;
 }
@@ -187,26 +157,16 @@ export async function parseFile(path: string) {
 }
 
 export function getRepoPath(): string {
-  if (NODE_ENV === "development") {
-    if (process.argv[2]) {
-      const cmdArgPath = process.argv[2];
-      if (!existsSync(cmdArgPath)) {
-        console.error(
-          `Command line argument path does not exist: ${cmdArgPath}`,
-        );
-        process.exit(1);
-      }
-      return cmdArgPath;
-    } else {
-      console.log(
-        `Development mode: No command line argument provided. Usage: npm start <path-to-repo>`,
-      );
-      console.log(`Falling back to default repository path: ${REPO_PATH}`);
+  if (process.argv[2]) {
+    const cmdArgPath = process.argv[2];
+    if (!existsSync(cmdArgPath)) {
+      console.error(`Command line argument path does not exist: ${cmdArgPath}`);
+      process.exit(1);
     }
-  } else {
-    console.log(`Using default repository path: ${REPO_PATH}`);
+    return cmdArgPath;
   }
-  return REPO_PATH;
+
+  return "";
 }
 
 export function cleanPath(path: string) {
@@ -214,87 +174,52 @@ export function cleanPath(path: string) {
   return path.replace(repoPath, "");
 }
 
-export async function useRepo(): Promise<PrePassResultDTO> {
-  // Cloning logic commented out - using LOCAL_REPO_PATH environment variable instead
-  /*
-  const isHttpUrl =
-    REPO_URI.startsWith("http://") || REPO_URI.startsWith("https://");
-  const isSshUrl = REPO_URI.startsWith("git@");
-  const isLocalPath = !isHttpUrl && !isSshUrl && existsSync(REPO_URI);
+// Event loop to process function parse queue with rate limiting
+export async function processFunctionParseQueue() {
+  console.log(
+    `Starting function parse queue processing with ${functionParseQueue.length} items`,
+  );
 
-  if (isHttpUrl || isSshUrl) {
-    let org: string, repoName: string, cloneUrl: string;
+  while (functionParseQueue.length > 0) {
+    const item = functionParseQueue[0]; // Peek at first item without removing
+    if (!item) break;
 
-    if (isHttpUrl) {
-      cloneUrl = REPO_URI.replace("github", `faraazahmad:${GITHUB_PAT}@github`);
-      const url = new URL(cloneUrl);
-      const pathParts = url.pathname
-        .split("/")
-        .filter((part) => part.length > 0);
-      org = pathParts[0];
-      repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
-    } else {
-      // SSH URL format: git@github.com:org/repo.git
-      cloneUrl = REPO_URI;
-      const colonIndex = REPO_URI.indexOf(":");
-      const pathAfterColon = REPO_URI.substring(colonIndex + 1);
-      const pathParts = pathAfterColon.split("/");
-      org = pathParts[0];
-      repoName = pathParts[1].replace(/^rs-/, "").replace(/\.git$/, "");
+    try {
+      console.log(
+        `Processing function ${item.functionNodeId} (${functionParseQueue.length} remaining)`,
+      );
+      await parseFunctionDeclaration(item.node);
+
+      // Only remove from queue if parsing was successful
+      functionParseQueue.shift();
+
+      // Apply delay for API rate limiting
+      if (functionParseQueue.length > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, API_RATE_LIMIT_DELAY),
+        );
+      }
+    } catch (error) {
+      console.error(`Error processing function ${item.functionNodeId}:`, error);
+      // Item remains in queue for potential retry
     }
-
-    const orgPath = `${HOME_PATH}/.graphsense/${org}`;
-    if (!existsSync(orgPath)) {
-      console.log("doesnt exist");
-      mkdirSync(orgPath, {
-        recursive: true,
-      });
-    }
-    const targetPath = `${HOME_PATH}/.graphsense/${org}/${repoName}`;
-
-    if (!existsSync(targetPath)) {
-      console.log(`Cloning ${cloneUrl} to ${targetPath}`);
-      execSync(`git clone --depth 1 ${cloneUrl} ${targetPath}`, {
-        stdio: "inherit",
-      });
-    }
-  } else if (isLocalPath) {
-    console.log(`Using local repository at ${REPO_URI}`);
   }
-  */
 
-  // Use the repository path from environment variable or command line arg
-  const repoPath = getRepoPath();
-  console.log(`Using repository at ${repoPath}`);
-
-  // const defaultBranch = execSync(
-  //   `git -C ${repoPath} rev-parse --abbrev-ref HEAD`,
-  //   {
-  //     encoding: "utf8",
-  //   },
-  // ).trim();
-
-  return Promise.resolve({
-    branch: "main",
-    path: repoPath,
-  });
+  console.log("Completed processing function parse queue");
 }
 
 async function main() {
   try {
+    await setupDB();
     console.log("Starting code analysis...");
 
-    const { branch, path } = await useRepo();
-    console.log(`Setting up database for branch: ${branch}`);
-    await setupDB(branch);
-
     const repoPath = getRepoPath();
-    const fileList = globSync(`${repoPath}/**/**/*.js`, {
+    const fileList = globSync(`${repoPath}/**/*.{js,ts,json}`, {
       absolute: true,
-      ignore: ["**/node_modules/**"],
+      ignore: [`${repoPath}/**/node_modules/**`],
     });
 
-    console.log(`Found ${fileList.length} JavaScript files to analyze`);
+    console.log(`Found ${fileList.length} files to analyze`);
 
     console.log("Starting file parsing...");
     let processedFiles = 0;
@@ -307,6 +232,15 @@ async function main() {
       }
     }
     console.log(`Completed parsing ${processedFiles} files`);
+
+    // Process function parse queue with rate limiting
+    if (functionParseQueue.length > 0) {
+      console.log(
+        `Starting function analysis for ${functionParseQueue.length} functions...`,
+      );
+      await processFunctionParseQueue();
+    }
+
     process.exit(0);
   } catch (error) {
     console.error("Fatal error in main function:", error);

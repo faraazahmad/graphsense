@@ -1,9 +1,9 @@
 import { watch, FSWatcher } from "node:fs";
 import { resolve, extname } from "node:path";
 import { existsSync } from "node:fs";
-import { parseFile, useRepo } from "./index";
-import { processFunctionWithAI } from "./parse";
-import { db, setupDB } from "./db";
+import { parseFile } from "./index";
+import { setupDB } from "./db";
+import { NEO4J_URI, POSTGRES_URL } from "./env";
 
 interface WatcherOptions {
   watchPath: string;
@@ -23,7 +23,7 @@ const createDefaultOptions = (
   options: WatcherOptions,
 ): Required<WatcherOptions> => ({
   watchPath: resolve(options.watchPath),
-  extensions: options.extensions || [".js", ".ts", ".json"],
+  extensions: options.extensions || [".js", ".ts"],
   ignorePatterns: options.ignorePatterns || [
     /node_modules/,
     /\.git/,
@@ -158,9 +158,9 @@ const createShutdownHandler = (state: WatcherState) => (): void => {
 
 // Main function to run the watcher
 const main = async (): Promise<void> => {
-  const { branch, path } = await useRepo();
-  console.log(`Setting up database for branch: ${branch}`);
-  await setupDB(branch);
+  console.log(NEO4J_URI);
+  console.log(POSTGRES_URL);
+  await setupDB();
   const watchPath = process.argv[2];
 
   if (!watchPath) {
@@ -170,7 +170,7 @@ const main = async (): Promise<void> => {
 
   const watcherState = startWatcher({
     watchPath,
-    extensions: [".js", ".ts", ".json"],
+    extensions: [".js", ".ts"],
     ignorePatterns: [
       /node_modules/,
       /\.git/,

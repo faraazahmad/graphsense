@@ -6,7 +6,7 @@ import * as fs from "fs";
 import * as crypto from "crypto";
 import * as os from "os";
 import { promisify } from "util";
-import getPort from "get-port";
+import getPort from "./ports";
 import * as dotenv from "dotenv";
 
 const execAsync = promisify(exec);

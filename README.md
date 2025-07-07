@@ -248,4 +248,4 @@ npx tsc --watch
 
 ## License
 
-[Add your license information here]
+Licensed under GPL v3.0

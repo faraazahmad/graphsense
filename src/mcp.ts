@@ -39,6 +39,8 @@ export async function getSimilarFunctions(description: string) {
       summary,
       path,
       name,
+      start_line,
+      end_line,
       1 - (embedding <=> $1::vector) as similarity_score
     FROM functions
     WHERE embedding IS NOT NULL
@@ -52,9 +54,11 @@ export async function getSimilarFunctions(description: string) {
   // Extract results for reranking
   const results = similarityResults.rows.map((row) => ({
     id: row.id,
-    text: row.summary,
+    summary: row.summary,
     path: row.path,
     name: row.name,
+    start_line: row.start_line,
+    end_line: row.end_line,
     similarity_score: row.similarity_score,
   }));
 
@@ -67,9 +71,6 @@ export async function getSimilarFunctions(description: string) {
     .slice(0, Math.min(topK, results.length))
     .map((func) => ({
       id: func.id,
-      path: func.path,
-      name: func.name,
-      similarity_score: func.similarity_score,
     }));
 
   return Promise.resolve(rankedFunctions);
@@ -107,6 +108,10 @@ function createMcpServer(): McpServer {
               type: "text",
               text: JSON.stringify(functions),
             },
+            {
+              type: "text",
+              text: "Call `function_details` tool in parallel to get more information about each function.",
+            },
           ],
         };
       } catch (error) {
@@ -138,14 +143,13 @@ function createMcpServer(): McpServer {
           `
           MATCH (caller:Function)-[:CALLS]->(target:Function)
           WHERE elementId(target) = $functionId
-          RETURN caller.name as caller_name, elementId(caller) as caller_id
+          RETURN elementId(caller) as id
           `,
           { functionId },
         );
 
         const callers = result.records.map((record) => ({
-          id: record.get("caller_id"),
-          name: record.get("caller_name"),
+          id: record.get("id"),
         }));
 
         return {
@@ -168,7 +172,7 @@ function createMcpServer(): McpServer {
       }
     },
   );
-
+  
   // Add function callees tool
   server.tool(
     "function_callees",
@@ -184,14 +188,13 @@ function createMcpServer(): McpServer {
           `
           MATCH (source:Function)-[:CALLS]->(callee:Function)
           WHERE elementId(source) = $functionId
-          RETURN callee.name as callee_name, elementId(callee) as callee_id
+          RETURN elementId(callee) as callee_id
           `,
           { functionId },
         );
 
         const callees = result.records.map((record) => ({
           id: record.get("callee_id"),
-          name: record.get("callee_name"),
         }));
 
         return {
@@ -227,7 +230,7 @@ function createMcpServer(): McpServer {
     async ({ functionId }: { functionId: string }) => {
       try {
         const result = await db.relational.client!.query(
-          `SELECT id, name, code, summary FROM functions WHERE id = $1 LIMIT 1`,
+          `SELECT id, name, path, summary FROM functions WHERE id = $1 LIMIT 1`,
           [functionId],
         );
 
@@ -276,10 +279,10 @@ if (require.main === module) {
       server.connect(transport);
       console.log("GraphSense MCP Server running on stdio");
     })
-    .catch(err => {
+    .catch((err) => {
       console.error(err);
       process.exit(1);
-    })
+    });
 }
 
 export { createMcpServer };

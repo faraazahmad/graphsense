@@ -172,7 +172,7 @@ function createMcpServer(): McpServer {
       }
     },
   );
-
+  
   // Add function callees tool
   server.tool(
     "function_callees",

@@ -123,6 +123,13 @@ export async function parseFile(path: string) {
     true,
   );
 
+  // Ensure the current file has a node in the graph
+  const normalizedPath = cleanPath(path);
+  await executeQuery(
+    `MERGE (f:File {path: $path})`,
+    { path: normalizedPath }
+  ).catch((err) => console.error(err));
+
   forEachChild(sourceFile, (child) => {
     const nodeResults = traverseNodes(path, child);
     if (nodeResults) {
@@ -142,8 +149,9 @@ export async function parseFile(path: string) {
 
     await executeQuery(
       `
-        match (file1:File { path: $source }), (file2:File { path: $path })
-        merge (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
+        MERGE (file1:File { path: $source })
+        MERGE (file2:File { path: $path })
+        MERGE (file1)-[:IMPORTS_FROM { clause: $clause }]->(file2)
       `,
       {
         source: cleanPath(path),

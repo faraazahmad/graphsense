@@ -153,7 +153,7 @@ export async function parseFunctionDeclaration(node: FunctionDeclaration) {
         name: functionName,
       },
     );
-    addCallsRelation(functionText, fileName, callSet);
+    addCallsRelation(functionName, fileName, callSet);
     const id: string = result.records.map((rec) => rec.get("id"))[0];
 
     const sourceFile = node.getSourceFile();
@@ -229,8 +229,9 @@ async function addCallsRelation(
     )[0];
     executeQuery(
       `
-        match (caller:Function { name: $callerName, path: $callerPath }), (callee:Function { name: $calleeName, path: $calleePath })
-        merge (caller)-[:CALLS]->(callee)
+        MERGE (caller:Function { name: $callerName, path: $callerPath })
+        MERGE (callee:Function { name: $calleeName, path: $calleePath })
+        MERGE (caller)-[:CALLS]->(callee)
       `,
       {
         callerName: caller,

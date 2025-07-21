@@ -1,14 +1,16 @@
 import { watch, FSWatcher } from "node:fs";
 import { resolve, extname } from "node:path";
 import { existsSync } from "node:fs";
+import { minimatch } from "minimatch";
 import { parseFile } from "./index";
 import { setupDB } from "./db";
 import { NEO4J_URI, POSTGRES_URL } from "./env";
+import { parseGitignore } from "./gitignoreUtils";
 
 interface WatcherOptions {
   watchPath: string;
   extensions?: string[];
-  ignorePatterns?: RegExp[];
+  ignorePatterns?: string[];
   debounceMs?: number;
 }
 
@@ -24,12 +26,7 @@ const createDefaultOptions = (
 ): Required<WatcherOptions> => ({
   watchPath: resolve(options.watchPath),
   extensions: options.extensions || [".js", ".ts"],
-  ignorePatterns: options.ignorePatterns || [
-    /node_modules/,
-    /\.git/,
-    /build/,
-    /dist/,
-  ],
+  ignorePatterns: options.ignorePatterns || [],
   debounceMs: options.debounceMs || 1000,
 });
 
@@ -44,8 +41,13 @@ const shouldIgnoreFile = (
     return true;
   }
 
-  // Check if file matches any ignore patterns
-  return options.ignorePatterns.some((pattern) => pattern.test(filePath));
+  // Make path relative to watch path for pattern matching
+  const relativePath = filePath.replace(options.watchPath + "/", "");
+
+  // Check if file matches any ignore patterns using glob matching
+  return options.ignorePatterns.some((pattern) =>
+    minimatch(relativePath, pattern),
+  );
 };
 
 const processFileChange = async (
@@ -108,9 +110,7 @@ const startWatcher = (options: WatcherOptions): WatcherState => {
 
   console.log(`Starting file watcher on: ${watcherOptions.watchPath}`);
   console.log(`Watching extensions: ${watcherOptions.extensions.join(", ")}`);
-  console.log(
-    `Ignoring patterns: ${watcherOptions.ignorePatterns.map((p) => p.source).join(", ")}`,
-  );
+  console.log(`Ignoring patterns: ${watcherOptions.ignorePatterns.join(", ")}`);
 
   try {
     // Watch the directory recursively
@@ -168,19 +168,13 @@ const main = async (): Promise<void> => {
     process.exit(1);
   }
 
+  // Parse gitignore patterns from the watch path
+  const gitignorePatterns = parseGitignore(watchPath);
+
   const watcherState = startWatcher({
     watchPath,
     extensions: [".js", ".ts"],
-    ignorePatterns: [
-      /node_modules/,
-      /\.git/,
-      /build/,
-      /dist/,
-      /logs/,
-      /\.log$/,
-      /\.tmp$/,
-      /\.temp$/,
-    ],
+    ignorePatterns: gitignorePatterns.watcherPatterns,
     debounceMs: 1000,
   });
 

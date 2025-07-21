@@ -14,6 +14,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { globSync } from "glob";
 import { executeQuery, setupDB } from "./db";
 import { parseFunctionDeclaration } from "./parse";
+import { parseGitignore } from "./gitignoreUtils";
 
 interface FunctionParseDTO {
   node: FunctionDeclaration;
@@ -125,10 +126,9 @@ export async function parseFile(path: string) {
 
   // Ensure the current file has a node in the graph
   const normalizedPath = cleanPath(path);
-  await executeQuery(
-    `MERGE (f:File {path: $path})`,
-    { path: normalizedPath }
-  ).catch((err) => console.error(err));
+  await executeQuery(`MERGE (f:File {path: $path})`, {
+    path: normalizedPath,
+  }).catch((err) => console.error(err));
 
   forEachChild(sourceFile, (child) => {
     const nodeResults = traverseNodes(path, child);
@@ -222,9 +222,16 @@ async function main() {
     console.log("Starting code analysis...");
 
     const repoPath = getRepoPath();
+
+    // Parse gitignore patterns
+    const gitignorePatterns = parseGitignore(repoPath);
+
     const fileList = globSync(`${repoPath}/**/*.{js,ts,json}`, {
       absolute: true,
-      ignore: [`${repoPath}/**/node_modules/**`],
+      ignore:
+        gitignorePatterns.globPatterns.length > 0
+          ? gitignorePatterns.globPatterns
+          : undefined,
     });
 
     console.log(`Found ${fileList.length} files to analyze`);

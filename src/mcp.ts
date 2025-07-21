@@ -62,18 +62,7 @@ export async function getSimilarFunctions(description: string) {
     similarity_score: row.similarity_score,
   }));
 
-  if (results.length === 0) {
-    return [];
-  }
-
-  // Use Pinecone similarity scores for ranking (already sorted by similarity)
-  const rankedFunctions = results
-    .slice(0, Math.min(topK, results.length))
-    .map((func) => ({
-      id: func.id,
-    }));
-
-  return Promise.resolve(rankedFunctions);
+  return results;
 }
 
 // Create and configure MCP server
@@ -102,15 +91,32 @@ function createMcpServer(): McpServer {
     }) => {
       try {
         const functions = await getSimilarFunctions(function_description);
+
+        if (functions.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "No similar functions found for the given description.",
+              },
+            ],
+          };
+        }
+
+        const formattedResponse = functions
+          .map(
+            (func, index) =>
+              `${index + 1}. **${func.name}** (ID: ${func.id})\n` +
+              `   - **Path:** ${func.path}:${func.start_line}-${func.end_line}\n` +
+              `   - **Summary:** ${func.summary}`,
+          )
+          .join("\n\n");
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(functions),
-            },
-            {
-              type: "text",
-              text: "Call `function_details` tool in parallel to get more information about each function.",
+              text: `Found ${functions.length} similar functions:\n\n${formattedResponse}`,
             },
           ],
         };
@@ -143,20 +149,36 @@ function createMcpServer(): McpServer {
           `
           MATCH (caller:Function)-[:CALLS]->(target:Function)
           WHERE elementId(target) = $functionId
-          RETURN elementId(caller) as id
+          RETURN elementId(caller) as id, caller.name as name, caller.path as path, caller.summary as summary
           `,
           { functionId },
         );
 
-        const callers = result.records.map((record) => ({
-          id: record.get("id"),
-        }));
+        if (result.records.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "No functions found that call this function.",
+              },
+            ],
+          };
+        }
+
+        const formattedResponse = result.records
+          .map(
+            (record, index) =>
+              `${index + 1}. **${record.get("name") || "Unknown"}** (ID: ${record.get("id")})\n` +
+              `   - **Path:** ${record.get("path") || "Unknown"}\n` +
+              `   - **Summary:** ${record.get("summary") || "No summary available"}`,
+          )
+          .join("\n\n");
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(callers, null, 2),
+              text: `Found ${result.records.length} functions that call this function:\n\n${formattedResponse}`,
             },
           ],
         };
@@ -172,7 +194,7 @@ function createMcpServer(): McpServer {
       }
     },
   );
-  
+
   // Add function callees tool
   server.tool(
     "function_callees",
@@ -188,20 +210,36 @@ function createMcpServer(): McpServer {
           `
           MATCH (source:Function)-[:CALLS]->(callee:Function)
           WHERE elementId(source) = $functionId
-          RETURN elementId(callee) as callee_id
+          RETURN elementId(callee) as callee_id, callee.name as name, callee.path as path, callee.summary as summary
           `,
           { functionId },
         );
 
-        const callees = result.records.map((record) => ({
-          id: record.get("callee_id"),
-        }));
+        if (result.records.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "This function doesn't call any other functions.",
+              },
+            ],
+          };
+        }
+
+        const formattedResponse = result.records
+          .map(
+            (record, index) =>
+              `${index + 1}. **${record.get("name") || "Unknown"}** (ID: ${record.get("callee_id")})\n` +
+              `   - **Path:** ${record.get("path") || "Unknown"}\n` +
+              `   - **Summary:** ${record.get("summary") || "No summary available"}`,
+          )
+          .join("\n\n");
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(callees, null, 2),
+              text: `This function calls ${result.records.length} functions:\n\n${formattedResponse}`,
             },
           ],
         };
@@ -246,11 +284,18 @@ function createMcpServer(): McpServer {
           };
         }
 
+        const formattedResponse =
+          `**Function Details:**\n\n` +
+          `- **Name:** ${functionData.name || "Unknown"}\n` +
+          `- **ID:** ${functionData.id}\n` +
+          `- **Path:** ${functionData.path || "Unknown"}\n` +
+          `- **Summary:** ${functionData.summary || "No summary available"}`;
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(functionData, null, 2),
+              text: formattedResponse,
             },
           ],
         };

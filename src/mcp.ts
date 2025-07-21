@@ -106,7 +106,7 @@ function createMcpServer(): McpServer {
         const formattedResponse = functions
           .map(
             (func, index) =>
-              `${index + 1}. **${func.name}** (ID: ${func.id})\n` +
+              `${index + 1}. **${func.name}**\n` +
               `   - **Path:** ${func.path}:${func.start_line}-${func.end_line}\n` +
               `   - **Summary:** ${func.summary}`,
           )
@@ -139,19 +139,28 @@ function createMcpServer(): McpServer {
     "function_callers",
     "Find functions that call a specific function",
     {
-      functionId: z
+      functionName: z
         .string()
-        .describe("The element ID of the function to find callers for"),
+        .describe("The name of the function to find callers for"),
+      functionPath: z
+        .string()
+        .describe("The path of the function to find callers for"),
     },
-    async ({ functionId }: { functionId: string }) => {
+    async ({
+      functionName,
+      functionPath,
+    }: {
+      functionName: string;
+      functionPath: string;
+    }) => {
       try {
         const result = await executeQuery(
           `
           MATCH (caller:Function)-[:CALLS]->(target:Function)
-          WHERE elementId(target) = $functionId
-          RETURN elementId(caller) as id, caller.name as name, caller.path as path, caller.summary as summary
+          WHERE target.name = $functionName AND target.path = $functionPath
+          RETURN caller.name as name, caller.path as path, caller.summary as summary
           `,
-          { functionId },
+          { functionName, functionPath },
         );
 
         if (result.records.length === 0) {
@@ -168,7 +177,7 @@ function createMcpServer(): McpServer {
         const formattedResponse = result.records
           .map(
             (record, index) =>
-              `${index + 1}. **${record.get("name") || "Unknown"}** (ID: ${record.get("id")})\n` +
+              `${index + 1}. **${record.get("name") || "Unknown"}**\n` +
               `   - **Path:** ${record.get("path") || "Unknown"}\n` +
               `   - **Summary:** ${record.get("summary") || "No summary available"}`,
           )
@@ -200,19 +209,28 @@ function createMcpServer(): McpServer {
     "function_callees",
     "Find functions called by a specific function",
     {
-      functionId: z
+      functionName: z
         .string()
-        .describe("The element ID of the function to find callees for"),
+        .describe("The name of the function to find callees for"),
+      functionPath: z
+        .string()
+        .describe("The path of the function to find callees for"),
     },
-    async ({ functionId }: { functionId: string }) => {
+    async ({
+      functionName,
+      functionPath,
+    }: {
+      functionName: string;
+      functionPath: string;
+    }) => {
       try {
         const result = await executeQuery(
           `
           MATCH (source:Function)-[:CALLS]->(callee:Function)
-          WHERE elementId(source) = $functionId
-          RETURN elementId(callee) as callee_id, callee.name as name, callee.path as path, callee.summary as summary
+          WHERE source.name = $functionName AND source.path = $functionPath
+          RETURN callee.name as name, callee.path as path, callee.summary as summary
           `,
-          { functionId },
+          { functionName, functionPath },
         );
 
         if (result.records.length === 0) {
@@ -229,7 +247,7 @@ function createMcpServer(): McpServer {
         const formattedResponse = result.records
           .map(
             (record, index) =>
-              `${index + 1}. **${record.get("name") || "Unknown"}** (ID: ${record.get("callee_id")})\n` +
+              `${index + 1}. **${record.get("name") || "Unknown"}**\n` +
               `   - **Path:** ${record.get("path") || "Unknown"}\n` +
               `   - **Summary:** ${record.get("summary") || "No summary available"}`,
           )
@@ -249,62 +267,6 @@ function createMcpServer(): McpServer {
             {
               type: "text",
               text: `Error finding function callees: ${error}`,
-            },
-          ],
-        };
-      }
-    },
-  );
-
-  // Add function details tool
-  server.tool(
-    "function_details",
-    "Get detailed information about a specific function",
-    {
-      functionId: z
-        .string()
-        .describe("The element ID of the function to get details for"),
-    },
-    async ({ functionId }: { functionId: string }) => {
-      try {
-        const result = await db.relational.client!.query(
-          `SELECT id, name, path, summary FROM functions WHERE id = $1 LIMIT 1`,
-          [functionId],
-        );
-
-        const functionData = result.rows[0];
-        if (!functionData) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Function with ID ${functionId} not found`,
-              },
-            ],
-          };
-        }
-
-        const formattedResponse =
-          `**Function Details:**\n\n` +
-          `- **Name:** ${functionData.name || "Unknown"}\n` +
-          `- **ID:** ${functionData.id}\n` +
-          `- **Path:** ${functionData.path || "Unknown"}\n` +
-          `- **Summary:** ${functionData.summary || "No summary available"}`;
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: formattedResponse,
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error getting function details: ${error}`,
             },
           ],
         };

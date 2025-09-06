@@ -1,14 +1,107 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { generateObject } from "ai";
 
 import { executeQuery, db, setupDB } from "./db";
-import { PINECONE_API_KEY } from "./env";
+import { PINECONE_API_KEY, claude } from "./env";
 import { Pinecone } from "@pinecone-database/pinecone";
 
 const pinecone = new Pinecone({
   apiKey: PINECONE_API_KEY,
 });
+
+interface FunctionResult {
+  id: string;
+  summary: string;
+  path: string;
+  name: string;
+  start_line: number;
+  end_line: number;
+  similarity_score: number;
+}
+
+export async function batchValidateFunctions(
+  description: string,
+  functions: FunctionResult[],
+  batchSize: number = 20,
+): Promise<FunctionResult[]> {
+  const validatedFunctions: FunctionResult[] = [];
+
+  for (let i = 0; i < functions.length; i += batchSize) {
+    const batch = functions.slice(i, i + batchSize);
+
+    const validationPrompt = `You are evaluating whether functions match a given description.
+
+Description: "${description}"
+
+Functions to evaluate:
+${batch
+  .map(
+    (func, idx) =>
+      `${idx + 1}. Function: ${func.name}
+     Path: ${func.path}
+     Summary: ${func.summary}`,
+  )
+  .join("\n\n")}
+
+For each function, determine if it matches the description. Return true if it matches, false otherwise.`;
+
+    try {
+      const result = await generateObject({
+        model: claude,
+        prompt: validationPrompt,
+        schema: z.object({
+          evaluations: z.array(
+            z.object({
+              functionIndex: z.number(),
+              matches: z.boolean(),
+            }),
+          ),
+        }),
+      });
+      console.log(result.usage.totalTokens);
+
+      // Add matching functions to result in original order and stop on first false
+      let shouldStop = false;
+      const matchingIndices = new Set<number>();
+      
+      // First pass: collect matching indices and check for early stop
+      for (const evaluation of result.object.evaluations) {
+        if (
+          evaluation.functionIndex >= 0 &&
+          evaluation.functionIndex < batch.length
+        ) {
+          if (evaluation.matches) {
+            matchingIndices.add(evaluation.functionIndex);
+          } else {
+            // Since results are sorted by similarity, if this doesn't match,
+            // subsequent functions are unlikely to match either
+            shouldStop = true;
+            break;
+          }
+        }
+      }
+      
+      // Second pass: add functions in original order
+      for (let i = 0; i < batch.length; i++) {
+        if (matchingIndices.has(i)) {
+          validatedFunctions.push(batch[i]);
+        }
+      }
+
+      if (shouldStop) {
+        break;
+      }
+    } catch (error) {
+      console.error("Error validating batch:", error);
+      // Fallback: include all functions in batch if LLM validation fails
+      validatedFunctions.push(...batch);
+    }
+  }
+
+  return validatedFunctions;
+}
 
 export async function getSimilarFunctions(description: string) {
   console.log(description);
@@ -29,9 +122,7 @@ export async function getSimilarFunctions(description: string) {
     }
   }
 
-  const topK = 10;
-
-  // Use pgvector cosine similarity to find similar functions
+  // Use pgvector cosine similarity to find similar functions (no limit)
   const similarityResults = await db.relational.client!.query(
     `
     SELECT
@@ -46,13 +137,12 @@ export async function getSimilarFunctions(description: string) {
     WHERE embedding IS NOT NULL
       AND summary IS NOT NULL
     ORDER BY embedding <=> $1::vector
-    LIMIT $2
   `,
-    [JSON.stringify(queryEmbedding), topK],
+    [JSON.stringify(queryEmbedding)],
   );
 
-  // Extract results for reranking
-  const results = similarityResults.rows.map((row) => ({
+  // Extract results
+  const allResults: FunctionResult[] = similarityResults.rows.map((row) => ({
     id: row.id,
     summary: row.summary,
     path: row.path,
@@ -62,7 +152,13 @@ export async function getSimilarFunctions(description: string) {
     similarity_score: row.similarity_score,
   }));
 
-  return results;
+  // Validate results using LLM in batches
+  const validatedResults = await batchValidateFunctions(
+    description,
+    allResults,
+  );
+
+  return validatedResults;
 }
 
 // Create and configure MCP server
@@ -75,20 +171,13 @@ function createMcpServer(): McpServer {
   // Add similar functions search tool
   server.tool(
     "similar_functions",
-    "To search for functions in the codebase based on what they do.",
+    "To search for functions in the codebase based on what they do. Uses LLM validation to ensure semantic matches.",
     {
       function_description: z
         .string()
         .describe("description of the task performed by the function"),
-      topK: z.number().describe("Number of results to return (default: 10)"),
     },
-    async ({
-      function_description,
-      topK = 10,
-    }: {
-      function_description: string;
-      topK?: number;
-    }) => {
+    async ({ function_description }: { function_description: string }) => {
       try {
         const functions = await getSimilarFunctions(function_description);
 

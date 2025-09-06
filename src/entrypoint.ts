@@ -71,7 +71,7 @@ function logError(message: string, process = "MAIN"): void {
 }
 
 // Create SHA hash of repository path
-function createRepoHash(repoPath: string): string {
+export function createRepoHash(repoPath: string): string {
   const hash = crypto.createHash("sha256");
   hash.update(repoPath);
   return hash.digest("hex").substring(0, 16);

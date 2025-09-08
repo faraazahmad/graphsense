@@ -1,5 +1,19 @@
-import "dotenv/config";
 import { anthropic } from "@ai-sdk/anthropic";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import * as dotenv from "dotenv";
+
+const envFile = path.join(os.homedir(), ".graphsense", ".env");
+
+if (fs.existsSync(envFile)) {
+  dotenv.config({ path: envFile });
+  console.log(`Loaded environment variables from ${envFile}`);
+} else {
+  console.log(
+    `Environment file not found at ${envFile}, using system environment variables`,
+  );
+}
 
 // Validate required environment variables
 function validateRequiredEnvVars(): void {
@@ -19,15 +33,15 @@ function validateRequiredEnvVars(): void {
   }
 }
 
+// Validate environment variables on module load
+validateRequiredEnvVars();
+
 // Helper function to parse number environment variables
 function parseNumber(value: string | undefined, defaultValue: number): number {
   if (!value) return defaultValue;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
 }
-
-// Validate environment variables on module load
-validateRequiredEnvVars();
 
 export function getRepoQualifier(repoPath: string): string {
   // Extract repository name from the path
@@ -50,7 +64,9 @@ export const NODE_ENV = process.env.NODE_ENV || "development";
 export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 
 // Postgres configuration
-export const POSTGRES_URL = process.env.POSTGRES_URL;
+export const POSTGRES_URL =
+  process.env.POSTGRES_URL ||
+  "postgresql://postgres:postgres@localhost:5432/graphsense";
 
 // Neo4j configuration
 export const NEO4J_URI = process.env.NEO4J_URI || "bolt://localhost:7687";
@@ -70,4 +86,4 @@ export const HEALTH_CHECK_TIMEOUT = parseNumber(
 );
 
 // AI model instances
-export const claude = anthropic("claude-3-5-sonnet-latest");
+export const claude = anthropic("claude-4-opus-20250514");

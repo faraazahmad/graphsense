@@ -1,18 +1,125 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { generateObject } from "ai";
 
 import { executeQuery, db, setupDB } from "./db";
-import { PINECONE_API_KEY } from "./env";
+import { PINECONE_API_KEY, claude } from "./env";
 import { Pinecone } from "@pinecone-database/pinecone";
+import { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 
 const pinecone = new Pinecone({
   apiKey: PINECONE_API_KEY,
 });
 
-export async function getSimilarFunctions(description: string) {
-  console.log(description);
+interface FunctionResult {
+  id: string;
+  summary: string;
+  path: string;
+  name: string;
+  start_line: number;
+  end_line: number;
+  similarity_score: number;
+}
 
+export async function batchValidateFunctions(
+  description: string,
+  functions: FunctionResult[],
+  batchSize: number = 20,
+): Promise<{ functions: FunctionResult[]; totalTokens: number }> {
+  const validatedFunctions: FunctionResult[] = [];
+  let totalTokens = 0;
+
+  for (let i = 0; i < functions.length; i += batchSize) {
+    const batch = functions.slice(i, i + batchSize);
+
+    const validationPrompt = `
+Description: "${description}"
+
+Functions to evaluate:
+${batch
+  .map(
+    (func, idx) =>
+      `${idx + 1}. Function: ${func.name}
+     Path: ${func.path}
+     Summary: ${func.summary}`,
+  )
+  .join("\n\n")}
+
+For each function, determine if its summary is related to the description.
+
+Return true if related, false otherwise.
+`;
+
+    try {
+      const result = await generateObject({
+        model: claude,
+        system: `
+        You are a distinguished software engineer analyzing a codebase. Your task is to identify functions that are semantically related to a given description, even if they don't directly perform that action. This includes functions that:
+        - Directly perform the described action
+        - Handle, validate, or process the described action
+        - Warn about or prevent improper usage of the described action
+        - Are part of the workflow or lifecycle of the described action
+
+        Be inclusive rather than restrictive in your evaluation.
+        `,
+        prompt: validationPrompt,
+        providerOptions: {
+          thinking: { type: "enabled", budgetTokens: 12000 },
+        } satisfies AnthropicProviderOptions,
+        schema: z.object({
+          evaluations: z.array(
+            z.object({
+              functionIndex: z.number(),
+              matches: z.boolean(),
+            }),
+          ),
+        }),
+      });
+      totalTokens += result.usage.totalTokens;
+
+      // Add matching functions to result in original order and stop on first false
+      let shouldStop = false;
+      const matchingIndices = new Set<number>();
+
+      // First pass: collect matching indices and check for early stop
+      for (const evaluation of result.object.evaluations) {
+        if (
+          evaluation.functionIndex >= 0 &&
+          evaluation.functionIndex < batch.length
+        ) {
+          if (evaluation.matches) {
+            matchingIndices.add(evaluation.functionIndex);
+          } else {
+            // Since results are sorted by similarity, if this doesn't match,
+            // subsequent functions are unlikely to match either
+            shouldStop = true;
+            break;
+          }
+        }
+      }
+
+      // Second pass: add functions in original order
+      for (let i = 0; i < batch.length; i++) {
+        if (matchingIndices.has(i)) {
+          validatedFunctions.push(batch[i]);
+        }
+      }
+
+      if (shouldStop) {
+        break;
+      }
+    } catch (error) {
+      console.error("Error validating batch:", error);
+      // Fallback: include all functions in batch if LLM validation fails
+      validatedFunctions.push(...batch);
+    }
+  }
+
+  return { functions: validatedFunctions, totalTokens };
+}
+
+export async function getSimilarFunctions(description: string) {
   // Generate embedding for the search query using Pinecone
   const embeddingResponse = await pinecone.inference.embed(
     "multilingual-e5-large",
@@ -29,9 +136,7 @@ export async function getSimilarFunctions(description: string) {
     }
   }
 
-  const topK = 10;
-
-  // Use pgvector cosine similarity to find similar functions
+  // Use pgvector cosine similarity to find similar functions (no limit)
   const similarityResults = await db.relational.client!.query(
     `
     SELECT
@@ -46,13 +151,12 @@ export async function getSimilarFunctions(description: string) {
     WHERE embedding IS NOT NULL
       AND summary IS NOT NULL
     ORDER BY embedding <=> $1::vector
-    LIMIT $2
   `,
-    [JSON.stringify(queryEmbedding), topK],
+    [JSON.stringify(queryEmbedding)],
   );
 
-  // Extract results for reranking
-  const results = similarityResults.rows.map((row) => ({
+  // Extract results
+  const allResults: FunctionResult[] = similarityResults.rows.map((row) => ({
     id: row.id,
     summary: row.summary,
     path: row.path,
@@ -62,7 +166,8 @@ export async function getSimilarFunctions(description: string) {
     similarity_score: row.similarity_score,
   }));
 
-  return results;
+  // Validate results using LLM in batches
+  return await batchValidateFunctions(description, allResults);
 }
 
 // Create and configure MCP server
@@ -75,24 +180,18 @@ function createMcpServer(): McpServer {
   // Add similar functions search tool
   server.tool(
     "similar_functions",
-    "To search for functions in the codebase based on what they do.",
     {
       function_description: z
         .string()
-        .describe("description of the task performed by the function"),
-      topK: z.number().describe("Number of results to return (default: 10)"),
+        .describe(
+          "A clear, specific description of what kind of functions to find. This should describe the function's characteristics in terms of:\n\n**What to include:**\n- Function purpose/behavior (e.g., 'validates user input', 'processes arrays', 'handles HTTP requests')\n- Parameter types (e.g., 'accepts array parameter', 'takes string and number arguments')\n- Return types (e.g., 'returns boolean', 'returns Promise')\n- Functional patterns (e.g., 'callback functions', 'async operations', 'event handlers')\n- Data operations (e.g., 'transforms data', 'filters collections', 'sorts arrays')\n\n**Examples of good descriptions:**\n- 'functions that accept an array as a parameter'\n- 'functions that validate or sanitize user input'\n- 'async functions that make HTTP requests'\n- 'functions that return Promise objects'\n- 'callback functions for event handling'\n- 'functions that transform or map data structures'\n- 'utility functions for string manipulation'\n\n**Examples of poor descriptions:**\n- 'good functions' (too vague)\n- 'important stuff' (not descriptive)\n- 'functions' (too broad)\n\n**Tips for better results:**\n- Be specific about what the function does or handles\n- Include parameter/return type information when relevant\n- Use technical terms that would appear in function summaries\n- Focus on functionality rather than implementation details",
+        ),
     },
-    async ({
-      function_description,
-      topK = 10,
-    }: {
-      function_description: string;
-      topK?: number;
-    }) => {
+    async ({ function_description }: { function_description: string }) => {
       try {
-        const functions = await getSimilarFunctions(function_description);
+        const result = await getSimilarFunctions(function_description);
 
-        if (functions.length === 0) {
+        if (result.functions.length === 0) {
           return {
             content: [
               {
@@ -103,7 +202,7 @@ function createMcpServer(): McpServer {
           };
         }
 
-        const formattedResponse = functions
+        const formattedResponse = result.functions
           .map(
             (func, index) =>
               `${index + 1}. **${func.name}**\n` +
@@ -116,7 +215,11 @@ function createMcpServer(): McpServer {
           content: [
             {
               type: "text",
-              text: `Found ${functions.length} similar functions:\n\n${formattedResponse}`,
+              text: `Found ${result.functions.length} similar functions:\n\n${formattedResponse}`,
+            },
+            {
+              type: "text",
+              text: `Total tokens used while classifying functions: ${result.totalTokens}`,
             },
           ],
         };
